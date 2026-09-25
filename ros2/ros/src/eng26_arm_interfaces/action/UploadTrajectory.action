@@ -1,0 +1,24 @@
+# Upload only; success means Commit ACK(Ok), never execution success.
+CommandContext context
+uint8 arm_mask
+# Exactly 7 selected-arm names or all 14 names; order is arbitrary.
+# Position-only, no future header stamp; 1..256 points, strict microsecond times.
+trajectory_msgs/JointTrajectory trajectory
+---
+uint8 READY=0
+uint8 FAILED=1
+uint8 CANCELED=2
+uint8 UNKNOWN=3
+uint8 code
+uint64 session_id
+uint16 mode_epoch
+uint16 trajectory_id
+string message
+---
+uint8 BEGIN=0
+uint8 CHUNKS=1
+uint8 COMMIT=2
+uint8 phase
+uint16 trajectory_id
+uint16 acknowledged_points
+uint16 total_points

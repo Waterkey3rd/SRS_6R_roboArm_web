@@ -1,0 +1,21 @@
+/**:
+  ros__parameters:
+    driver_state_topic: /arm_driver/state
+    joint_state_topic: /joint_states
+    servo_topic: /arm_driver/servo_target
+    command_result_topic: /arm_driver/command_results
+    event_topic: /arm_driver/events
+    command_service: /arm_driver/command
+    stop_service: /arm_driver/stop
+
+    joint_out_topic: /arm_web/joint_state
+    state_out_topic: /arm_web/driver_state
+    result_out_topic: /arm_web/command_result
+    event_out_topic: /arm_web/event
+    servo_in_topic: /arm_web/servo_target
+
+    state_fresh_ms: 300
+    joint_publish_hz: 30.0
+    command_min_duration_ms: 20
+    command_max_duration_ms: 60000
+    servo_publish_limit_hz: 50.0

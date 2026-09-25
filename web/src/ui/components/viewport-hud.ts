@@ -16,6 +16,8 @@ export class ViewportHud {
   readonly element: HTMLElement;
   private leftReadout: HTMLElement;
   private rightReadout: HTMLElement;
+  private refFrameRow: HTMLElement;
+  private refFrameCoords: HTMLElement;
   private motionBanner: HTMLElement;
   private motionLabel: HTMLElement;
 
@@ -38,6 +40,10 @@ export class ViewportHud {
           <div class="hud-arm-readout" id="hud-right-arm">
             <span class="hud-chip right">右臂</span>
             <span class="hud-coords" id="hud-right-coords">X: 0.0 Y: 0.0 Z: 0.0 mm | Y: 0° P: 0° R: 0°</span>
+          </div>
+          <div class="hud-arm-readout" id="hud-ref-frame" style="display: none;">
+            <span class="hud-chip ref">参考系</span>
+            <span class="hud-coords" id="hud-ref-coords">X: 0.0 Y: 0.0 Z: 0.0 mm | Y: 0° P: 0° R: 0°</span>
           </div>
         </div>
       </div>
@@ -78,6 +84,8 @@ export class ViewportHud {
 
     this.leftReadout = this.element.querySelector('#hud-left-coords') as HTMLElement;
     this.rightReadout = this.element.querySelector('#hud-right-coords') as HTMLElement;
+    this.refFrameRow = this.element.querySelector('#hud-ref-frame') as HTMLElement;
+    this.refFrameCoords = this.element.querySelector('#hud-ref-coords') as HTMLElement;
     this.motionBanner = this.element.querySelector('#motion-progress-banner') as HTMLElement;
     this.motionLabel = this.element.querySelector('#motion-progress-text') as HTMLElement;
 
@@ -120,6 +128,22 @@ export class ViewportHud {
       } else {
         this.rightReadout.textContent = str;
       }
+    }
+  }
+
+  updateArmReadout(side: Side, cartesian: number[]): void {
+    const str = `X: ${cartesian[0].toFixed(1)} Y: ${cartesian[1].toFixed(1)} Z: ${cartesian[2].toFixed(1)} mm | Y: ${cartesian[3].toFixed(1)}° P: ${cartesian[4].toFixed(1)}° R: ${cartesian[5].toFixed(1)}°`;
+    if (side === 'left') {
+      this.leftReadout.textContent = str;
+    } else {
+      this.rightReadout.textContent = str;
+    }
+  }
+
+  showRefFrameReadout(pos?: { x: number; y: number; z: number }, rot?: { x: number; y: number; z: number }, visible = true): void {
+    this.refFrameRow.style.display = visible ? 'flex' : 'none';
+    if (pos && rot) {
+      this.refFrameCoords.textContent = `X: ${pos.x.toFixed(1)} Y: ${pos.y.toFixed(1)} Z: ${pos.z.toFixed(1)} mm | Y: ${(rot.z * RAD).toFixed(1)}° P: ${(rot.y * RAD).toFixed(1)}° R: ${(rot.x * RAD).toFixed(1)}°`;
     }
   }
 

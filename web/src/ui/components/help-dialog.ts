@@ -257,19 +257,52 @@ export class HelpDialog {
         </div>
       </div>
 
-      <div style="margin-top: 14px;">
+        <div style="font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+          <span class="btn-icon-slot">${ICONS.TOOL}</span>
+          <span>Blender 风格左侧三模工具栏 (鼠标实时拖拽与坐标系变换)</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 12px; margin-bottom: 14px;">
+          <div class="guide-info-card">
+            <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+              <span class="btn-icon-slot">${ICONS.TOOL_FRAME}</span>
+              <span>1. 动坐标系 (1 / C)</span>
+            </div>
+            <div style="color: var(--text-secondary); line-height: 1.6;">
+              移动/标定三维空间参考坐标系。支持 Gizmo 空间平移，或鼠标左键在地面任意点击吸附置放。提供原点复位与机械臂末端对齐。
+            </div>
+          </div>
+          <div class="guide-info-card">
+            <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+              <span class="btn-icon-slot">${ICONS.TOOL_TRANSLATE}</span>
+              <span>2. 移动末端位置 (2 / G)</span>
+            </div>
+            <div style="color: var(--text-secondary); line-height: 1.6;">
+              鼠标直接拖拽末端平移 Gizmo（X/Y/Z 轴或平面）。WASM 高帧率实时逆解解算，机械臂连杆流畅跟随，释放鼠标自动记录关键点。
+            </div>
+          </div>
+          <div class="guide-info-card">
+            <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">
+              <span class="btn-icon-slot">${ICONS.TOOL_ROTATE}</span>
+              <span>3. 移动末端位姿 (3 / R)</span>
+            </div>
+            <div style="color: var(--text-secondary); line-height: 1.6;">
+              鼠标拖拽三轴旋转环动态旋转机械臂末端朝向，关节自适应解算。按 <kbd>Tab</kbd> 键可快速在左臂与右臂之间切换操作对象。
+            </div>
+          </div>
+        </div>
+
         <div style="font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
           <span class="btn-icon-slot">${ICONS.CUBE}</span>
           <span>快速预设视角与视口图层工具栏</span>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
           <div class="guide-info-card">
-            <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">快捷数字键视角切换</div>
+            <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">快捷视角切换</div>
             <ul style="padding-left: 16px; color: var(--text-secondary); line-height: 1.8;">
-              <li><kbd>1</kbd>：等轴透视视角 (默认全局视角)</li>
-              <li><kbd>2</kbd>：正上方顶视视角 (Top)</li>
-              <li><kbd>3</kbd>：正前方正视视角 (Front)</li>
-              <li><kbd>4</kbd>：右侧方侧视视角 (Side)</li>
+              <li><kbd>Alt+4</kbd> / 小键盘 0：等轴透视视角 (默认视角)</li>
+              <li><kbd>Alt+2</kbd> / 小键盘 7：正上方顶视视角 (Top)</li>
+              <li><kbd>Alt+1</kbd> / 小键盘 1：正前方正视视角 (Front)</li>
+              <li><kbd>Alt+3</kbd> / 小键盘 3：右侧方侧视视角 (Side)</li>
             </ul>
           </div>
           <div class="guide-info-card">
@@ -426,6 +459,18 @@ export class HelpDialog {
         </div>
 
         <div style="display: grid; grid-template-columns: 140px 1fr; gap: 8px 14px; font-size: 13px;">
+          <kbd class="guide-kbd">1 / C</kbd>
+          <span>切换左侧【动坐标系】工具（标定与移动参考坐标系）</span>
+
+          <kbd class="guide-kbd">2 / G</kbd>
+          <span>切换左侧【移动末端位置】工具（鼠标平移拖拽，实时 IK）</span>
+
+          <kbd class="guide-kbd">3 / R</kbd>
+          <span>切换左侧【移动末端位姿】工具（鼠标旋转拖拽，实时 IK）</span>
+
+          <kbd class="guide-kbd">Tab</kbd>
+          <span>切换当前操作机械臂（左臂 L / 右臂 R）</span>
+
           <kbd class="guide-kbd">Space</kbd>
           <span>播放 / 暂停动作序列时间轴回放</span>
 
@@ -438,11 +483,11 @@ export class HelpDialog {
           <kbd class="guide-kbd">F2</kbd>
           <span>打开当前选中关键点编辑与详情弹窗</span>
 
-          <kbd class="guide-kbd">1 / 2 / 3 / 4</kbd>
-          <span>快速切换 3D 视角（1 透视、2 顶视、3 正视、4 侧视）</span>
+          <kbd class="guide-kbd">Alt + 1 / 2 / 3 / 4</kbd>
+          <span>快速切换视角（Alt+4 透视、Alt+2 顶视、Alt+1 正视、Alt+3 侧视）</span>
 
           <kbd class="guide-kbd">Esc</kbd>
-          <span>关闭当前打开的弹窗 / 浮层</span>
+          <span>关闭当前弹窗，或退出工具拖拽恢复纯观察状态</span>
         </div>
       </div>
 

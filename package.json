@@ -1,0 +1,10 @@
+{
+  "name": "srs-7r-roboarm-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "test": "npm --prefix web test",
+    "start": "npm --prefix web run dev"
+  }
+}

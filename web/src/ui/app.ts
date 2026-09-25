@@ -1,5 +1,7 @@
+import * as THREE from 'three';
 import { RoboArmController } from '../controller';
 import type { PlaybackFrame } from '../controller';
+import { RAD } from '../math';
 import { ArmRenderer } from '../renderer';
 import type { ArmState, Side } from '../types';
 import { cloneState, SIDES } from '../types';
@@ -13,11 +15,13 @@ import { showToast } from './components/toast';
 import { TopBar } from './components/top-bar';
 import { TrajectoryDialog } from './components/trajectory-dialog';
 import { ViewportHud } from './components/viewport-hud';
+import { ViewportToolbar } from './components/viewport-toolbar';
 
 export class App {
   private renderer!: ArmRenderer;
   private topBar!: TopBar;
   private viewportHud!: ViewportHud;
+  private viewportToolbar!: ViewportToolbar;
   private controlPanel!: ControlPanel;
   private timeline!: TimelineDock;
 
@@ -97,6 +101,57 @@ export class App {
       onToggleGrid: () => this.renderer.toggleGrid(),
       onToggleAxes: () => this.renderer.toggleAxes(),
       onToggleTool: () => this.renderer.toggleTool(),
+    });
+
+    // Viewport Toolbar (Left 3-Mode Vertical Toolbar)
+    this.viewportToolbar = new ViewportToolbar(viewportContainer, {
+      onSelectTool: (mode) => {
+        this.renderer.setInteractiveTool(mode);
+        if (mode === 'frame') {
+          showToast({ message: '已开启【动坐标系】工具：拖拽移动，点击地面快速吸附', type: 'info' });
+          const pose = this.renderer.getRefFramePose();
+          this.viewportHud.showRefFrameReadout(pose.position, pose.rotation, true);
+        } else if (mode === 'translate') {
+          this.viewportHud.showRefFrameReadout(undefined, undefined, false);
+          showToast({ message: `已开启【移动末端位置】工具 (当前：${this.renderer.getActiveSide() === 'left' ? '左臂' : '右臂'})`, type: 'info' });
+        } else if (mode === 'rotate') {
+          this.viewportHud.showRefFrameReadout(undefined, undefined, false);
+          showToast({ message: `已开启【移动末端位姿】工具 (当前：${this.renderer.getActiveSide() === 'left' ? '左臂' : '右臂'})`, type: 'info' });
+        } else {
+          this.viewportHud.showRefFrameReadout(undefined, undefined, false);
+        }
+      },
+      onSelectArm: (side) => {
+        this.renderer.setActiveSide(side);
+        showToast({ message: `已切换操作机械臂为：${side === 'left' ? '左臂' : '右臂'}`, type: 'info' });
+      },
+      onResetRefFrame: () => {
+        this.renderer.resetRefFrameToOrigin();
+        showToast({ message: '参考坐标系已复位至世界原点 (0, 0, 0)', type: 'info' });
+      },
+      onAlignArmToRefFrame: () => {
+        this.alignActiveArmToRefFrame();
+      },
+    });
+
+    // Wire renderer callbacks
+    this.renderer.setCallbacks({
+      onToolChange: (mode) => {
+        this.viewportToolbar.setTool(mode);
+      },
+      onActiveSideChange: (side) => {
+        this.viewportToolbar.setArm(side);
+      },
+      onInteractiveMove: (side, q, cartesian) => {
+        this.viewportHud.updateArmReadout(side, cartesian);
+        this.controlPanel.syncInteractiveState(side, q, cartesian);
+      },
+      onInteractiveCommit: (side, q, cartesian, label) => {
+        this.commitInteractiveKeypoint(side, q, cartesian, label);
+      },
+      onRefFrameChange: (pos, rot) => {
+        this.viewportHud.showRefFrameReadout(pos, rot, true);
+      },
     });
 
     // Right Control Dock
@@ -482,6 +537,61 @@ export class App {
   }
 
   // =========================================================
+  // Interactive Viewport Tools Execution & Alignment
+  // =========================================================
+  private commitInteractiveKeypoint(
+    side: Side,
+    q: number[],
+    _cartesian: number[],
+    label: string,
+  ): void {
+    try {
+      const otherSide: Side = side === 'left' ? 'right' : 'left';
+      const curOtherQ = this.controller.current[otherSide];
+
+      const valuesDeg: Record<Side, number[]> = {
+        [side]: q.map(v => v * RAD),
+        [otherSide]: curOtherQ.map(v => v * RAD),
+      } as any;
+
+      this.controller.commandJoints(valuesDeg, {
+        durationMs: 400,
+        label,
+      });
+      this.activeKeypointIndex = this.controller.history.length - 1;
+      this.timeline.updateTimeline(this.activeKeypointIndex);
+      this.syncAllViews();
+      showToast({ message: `已记录关键点：${label}`, type: 'success' });
+    } catch (err: any) {
+      showToast({ title: '记录失败', message: err.message || '当前姿态解算异常', type: 'danger' });
+    }
+  }
+
+  private alignActiveArmToRefFrame(): void {
+    const side = this.viewportToolbar.getArm();
+    const pose = this.renderer.getRefFramePose();
+    const targetPos = [pose.position.x, pose.position.y, pose.position.z];
+    const m = new THREE.Matrix4().makeRotationFromEuler(pose.rotation);
+    const e = m.elements;
+    const targetRot = [e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]];
+    const curQ = this.controller.current[side];
+
+    try {
+      const solved = this.controller.ik.solve(side, targetRot, targetPos, curQ);
+      const otherSide: Side = side === 'left' ? 'right' : 'left';
+      const valuesDeg: Record<Side, number[]> = {
+        [side]: solved.q.map(v => v * RAD),
+        [otherSide]: this.controller.current[otherSide].map(v => v * RAD),
+      } as any;
+
+      this.executeJoint(valuesDeg, 1000);
+      showToast({ message: `${side === 'left' ? '左' : '右'}臂已对齐至参考坐标系`, type: 'success' });
+    } catch (err: any) {
+      showToast({ title: '无法对齐', message: '参考坐标系位置超出机械臂工作空间或处于奇异点', type: 'danger' });
+    }
+  }
+
+  // =========================================================
   // Keyboard Shortcuts
   // =========================================================
   private bindKeyboardShortcuts(): void {
@@ -510,19 +620,57 @@ export class App {
         } else if (this.controller.history.length > 0) {
           this.historyDialog.open(0);
         }
-      } else if (e.key === '1') {
-        this.renderer.setCameraPreset('iso', true);
-      } else if (e.key === '2') {
-        this.renderer.setCameraPreset('top', true);
-      } else if (e.key === '3') {
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        const next = this.viewportToolbar.getArm() === 'left' ? 'right' : 'left';
+        this.viewportToolbar.setArm(next);
+        this.renderer.setActiveSide(next);
+        showToast({ message: `已切换操作臂为：${next === 'left' ? '左臂' : '右臂'}`, type: 'info' });
+      } else if ((e.key === '1' || e.key === 'c' || e.key === 'C') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        const next = this.viewportToolbar.getTool() === 'frame' ? 'none' : 'frame';
+        this.viewportToolbar.setTool(next);
+        this.renderer.setInteractiveTool(next);
+        if (next === 'frame') {
+          const pose = this.renderer.getRefFramePose();
+          this.viewportHud.showRefFrameReadout(pose.position, pose.rotation, true);
+          showToast({ message: '已开启【动坐标系】工具 (快捷键 1 / C)', type: 'info' });
+        } else {
+          this.viewportHud.showRefFrameReadout(undefined, undefined, false);
+        }
+      } else if ((e.key === '2' || e.key === 'g' || e.key === 'G') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        const next = this.viewportToolbar.getTool() === 'translate' ? 'none' : 'translate';
+        this.viewportToolbar.setTool(next);
+        this.renderer.setInteractiveTool(next);
+        this.viewportHud.showRefFrameReadout(undefined, undefined, false);
+        if (next === 'translate') {
+          showToast({ message: `已开启【移动末端位置】工具 (快捷键 2 / G) - 当前：${this.viewportToolbar.getArm() === 'left' ? '左臂' : '右臂'}`, type: 'info' });
+        }
+      } else if ((e.key === '3' || e.key === 'r' || e.key === 'R') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+        const next = this.viewportToolbar.getTool() === 'rotate' ? 'none' : 'rotate';
+        this.viewportToolbar.setTool(next);
+        this.renderer.setInteractiveTool(next);
+        this.viewportHud.showRefFrameReadout(undefined, undefined, false);
+        if (next === 'rotate') {
+          showToast({ message: `已开启【移动末端位姿】工具 (快捷键 3 / R) - 当前：${this.viewportToolbar.getArm() === 'left' ? '左臂' : '右臂'}`, type: 'info' });
+        }
+      } else if (e.code === 'Numpad1' || (e.altKey && e.key === '1')) {
         this.renderer.setCameraPreset('front', true);
-      } else if (e.key === '4') {
+      } else if (e.code === 'Numpad7' || (e.altKey && e.key === '2')) {
+        this.renderer.setCameraPreset('top', true);
+      } else if (e.code === 'Numpad3' || (e.altKey && e.key === '3')) {
         this.renderer.setCameraPreset('side', true);
+      } else if (e.code === 'Numpad0' || (e.altKey && e.key === '4')) {
+        this.renderer.setCameraPreset('iso', true);
       } else if (e.key === 'Escape') {
         this.trajectoryDialog.close();
         this.historyDialog.close();
         this.ioDialog.close();
         this.helpDialog.close();
+        if (this.viewportToolbar.getTool() !== 'none') {
+          this.viewportToolbar.setTool('none');
+          this.renderer.setInteractiveTool('none');
+          this.viewportHud.showRefFrameReadout(undefined, undefined, false);
+        }
       }
     });
   }

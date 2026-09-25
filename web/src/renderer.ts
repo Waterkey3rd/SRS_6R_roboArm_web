@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { DEG, matrixToYpr } from './math';
 import type { ArmState, Side } from './types';
-import { SIDES } from './types';
+import { cloneState, SIDES, zeroState } from './types';
 import type { DeployIK } from './wasm';
 
 interface ArmMeshes {
@@ -14,12 +16,22 @@ interface ArmMeshes {
 
 export type ThemeMode = 'light' | 'dark';
 export type CameraPreset = 'iso' | 'top' | 'front' | 'side';
+export type ViewportToolMode = 'none' | 'frame' | 'translate' | 'rotate';
+
+export interface RendererCallbacks {
+  onToolChange?: (mode: ViewportToolMode) => void;
+  onActiveSideChange?: (side: Side) => void;
+  onInteractiveMove?: (side: Side, q: number[], cartesian: number[]) => void;
+  onInteractiveCommit?: (side: Side, q: number[], cartesian: number[], label: string) => void;
+  onRefFrameChange?: (pos: THREE.Vector3, rot: THREE.Euler) => void;
+}
 
 export interface RendererOptions {
   theme?: ThemeMode;
   showGrid?: boolean;
   showAxes?: boolean;
   showTool?: boolean;
+  callbacks?: RendererCallbacks;
 }
 
 export class ArmRenderer {
@@ -27,6 +39,7 @@ export class ArmRenderer {
   private readonly camera = new THREE.PerspectiveCamera(42, 1, 1, 10000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   private readonly controls: OrbitControls;
+  private readonly transformControls: TransformControls;
   private readonly arms = {} as Record<Side, ArmMeshes>;
   private readonly resizeObserver: ResizeObserver;
 
@@ -38,11 +51,25 @@ export class ArmRenderer {
   private baseMesh: THREE.Mesh;
   private disposed = false;
 
+  // Viewport 3-Tool Interactive Dragging & Coordinate Frame State
+  private currentToolMode: ViewportToolMode = 'none';
+  private activeSide: Side = 'left';
+  private readonly refFrame: THREE.Group;
+  private readonly ikTargetProxy = new THREE.Object3D();
+  private isDraggingGizmo = false;
+  private currentState: ArmState = zeroState();
+  private callbacks: RendererCallbacks;
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly floorPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  private pointerDownPos = new THREE.Vector2();
+  private pointerDownTime = 0;
+
   private targetCamPos = new THREE.Vector3();
   private targetCamTarget = new THREE.Vector3();
   private isTransitioningCam = false;
 
   constructor(private readonly host: HTMLElement, private readonly ik: DeployIK, options: RendererOptions = {}) {
+    this.callbacks = options.callbacks || {};
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
@@ -60,6 +87,29 @@ export class ArmRenderer {
     this.controls.maxDistance = 2500;
     this.controls.minDistance = 150;
     this.controls.addEventListener('change', () => this.render());
+
+    // Interactive Gizmo & Helpers
+    this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
+    this.transformControls.size = 0.85;
+    this.scene.add(this.transformControls.getHelper());
+
+    this.scene.add(this.ikTargetProxy);
+    this.refFrame = this.createRefFrame();
+
+    this.transformControls.addEventListener('dragging-changed', (e: any) => {
+      this.isDraggingGizmo = !!e.value;
+      this.controls.enabled = !e.value;
+      if (!e.value) {
+        this.handleDragEnd();
+      }
+    });
+
+    this.transformControls.addEventListener('change', () => {
+      if (this.isDraggingGizmo) {
+        this.handleGizmoChange();
+      }
+      this.render();
+    });
 
     // Blender-style Navigation Controls:
     // MMB: Rotate (Orbit) | Shift + MMB: Pan | Ctrl + MMB / Wheel: Zoom (Dolly)
@@ -81,6 +131,9 @@ export class ArmRenderer {
     this.renderer.domElement.addEventListener(
       'pointerdown',
       (e: PointerEvent) => {
+        this.pointerDownPos.set(e.clientX, e.clientY);
+        this.pointerDownTime = performance.now();
+
         // Trackpad Emulate 3 Button Mouse with Alt key
         if (e.button === 0) {
           if (e.altKey) {
@@ -108,6 +161,17 @@ export class ArmRenderer {
       },
       { capture: true },
     );
+
+    // Click interaction (e.g. raycasting ground plane for Tool 1 or selecting arm)
+    this.renderer.domElement.addEventListener('pointerup', (e: PointerEvent) => {
+      if (e.button === 0 && !this.isDraggingGizmo && !e.altKey) {
+        const dist = Math.hypot(e.clientX - this.pointerDownPos.x, e.clientY - this.pointerDownPos.y);
+        const elapsed = performance.now() - this.pointerDownTime;
+        if (dist < 6 && elapsed < 400) {
+          this.handleClickInteraction(e);
+        }
+      }
+    });
 
     // Lights
     this.hemiLight = new THREE.HemisphereLight(0xffffff, 0xd0d7de, 2.4);
@@ -338,27 +402,245 @@ export class ArmRenderer {
   }
 
   update(state: ArmState): void {
+    this.currentState = cloneState(state);
     for (const side of SIDES) {
-      const chain = this.ik.chain(side, state[side]);
-      const meshes = this.arms[side];
-      for (let i = 0; i < 7; i++) {
-        const a = new THREE.Vector3(...(chain.positions[i] as [number, number, number]));
-        const b = new THREE.Vector3(...(chain.positions[i + 1] as [number, number, number]));
-        meshes.joints[i].position.copy(a);
-        meshes.axes[i].position.copy(a);
-        meshes.axes[i].setDirection(new THREE.Vector3(...(chain.axes[i] as [number, number, number])).normalize());
-        this.placeCylinder(meshes.links[i], a, b);
-      }
-      const fk = this.ik.fk(side, state[side]);
-      meshes.tool.position.set(...(fk.position as [number, number, number]));
-      const m = new THREE.Matrix4().set(
-        fk.rotation[0], fk.rotation[1], fk.rotation[2], 0,
-        fk.rotation[3], fk.rotation[4], fk.rotation[5], 0,
-        fk.rotation[6], fk.rotation[7], fk.rotation[8], 0,
-        0, 0, 0, 1,
-      );
-      meshes.tool.quaternion.setFromRotationMatrix(m);
+      this.updateSingleArmMesh(side, state[side]);
     }
+    if (!this.isDraggingGizmo && (this.currentToolMode === 'translate' || this.currentToolMode === 'rotate')) {
+      this.syncProxyToActiveArm();
+    }
+  }
+
+  private updateSingleArmMesh(side: Side, q: number[]): void {
+    const chain = this.ik.chain(side, q);
+    const meshes = this.arms[side];
+    for (let i = 0; i < 7; i++) {
+      const a = new THREE.Vector3(...(chain.positions[i] as [number, number, number]));
+      const b = new THREE.Vector3(...(chain.positions[i + 1] as [number, number, number]));
+      meshes.joints[i].position.copy(a);
+      meshes.axes[i].position.copy(a);
+      meshes.axes[i].setDirection(new THREE.Vector3(...(chain.axes[i] as [number, number, number])).normalize());
+      this.placeCylinder(meshes.links[i], a, b);
+    }
+    const fk = this.ik.fk(side, q);
+    meshes.tool.position.set(...(fk.position as [number, number, number]));
+    const m = new THREE.Matrix4().set(
+      fk.rotation[0], fk.rotation[1], fk.rotation[2], 0,
+      fk.rotation[3], fk.rotation[4], fk.rotation[5], 0,
+      fk.rotation[6], fk.rotation[7], fk.rotation[8], 0,
+      0, 0, 0, 1,
+    );
+    meshes.tool.quaternion.setFromRotationMatrix(m);
+  }
+
+  private syncProxyToActiveArm(): void {
+    const fk = this.ik.fk(this.activeSide, this.currentState[this.activeSide]);
+    this.ikTargetProxy.position.set(...(fk.position as [number, number, number]));
+    const m = new THREE.Matrix4().set(
+      fk.rotation[0], fk.rotation[1], fk.rotation[2], 0,
+      fk.rotation[3], fk.rotation[4], fk.rotation[5], 0,
+      fk.rotation[6], fk.rotation[7], fk.rotation[8], 0,
+      0, 0, 0, 1,
+    );
+    this.ikTargetProxy.quaternion.setFromRotationMatrix(m);
+  }
+
+  private createRefFrame(): THREE.Group {
+    const group = new THREE.Group();
+    group.name = 'reference-frame';
+
+    // 3D Crosshair Axes (X=Red, Y=Green, Z=Blue)
+    const axes = new THREE.AxesHelper(75);
+    (axes.material as THREE.Material).depthTest = false;
+    axes.renderOrder = 20;
+    group.add(axes);
+
+    // Center 3D Cursor Marker (Double ring + center sphere, Blender 3D cursor aesthetic)
+    const centerSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(3.5, 16, 16),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2, metalness: 0.8 }),
+    );
+    group.add(centerSphere);
+
+    const ringGeo = new THREE.TorusGeometry(12, 0.8, 12, 36);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xd97706, depthTest: false });
+    const ring1 = new THREE.Mesh(ringGeo, ringMat);
+    ring1.renderOrder = 21;
+    group.add(ring1);
+
+    const ring2 = new THREE.Mesh(ringGeo, ringMat);
+    ring2.rotation.x = Math.PI / 2;
+    ring2.renderOrder = 21;
+    group.add(ring2);
+
+    group.position.set(220, 0, 100);
+    group.visible = false;
+    this.scene.add(group);
+    return group;
+  }
+
+  private handleClickInteraction(e: PointerEvent): void {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(mouse, this.camera);
+
+    // If in reference frame mode, click on ground grid to place reference frame
+    if (this.currentToolMode === 'frame') {
+      const hit = new THREE.Vector3();
+      if (this.raycaster.ray.intersectPlane(this.floorPlane, hit)) {
+        if (Math.abs(hit.x) < 800 && Math.abs(hit.y) < 800) {
+          this.refFrame.position.set(Math.round(hit.x), Math.round(hit.y), 0);
+          this.callbacks.onRefFrameChange?.(this.refFrame.position.clone(), this.refFrame.rotation.clone());
+          this.render();
+          return;
+        }
+      }
+    }
+
+    // Check if user clicked an arm's joints/tool to select that arm
+    for (const side of SIDES) {
+      const meshes = this.arms[side];
+      const hits = this.raycaster.intersectObjects([...meshes.joints, ...meshes.links, meshes.tool], true);
+      if (hits.length > 0) {
+        this.setActiveSide(side);
+        return;
+      }
+    }
+  }
+
+  private handleGizmoChange(): void {
+    if (this.currentToolMode === 'frame') {
+      this.callbacks.onRefFrameChange?.(
+        this.refFrame.position.clone(),
+        this.refFrame.rotation.clone(),
+      );
+      return;
+    }
+
+    if (this.currentToolMode === 'translate') {
+      const targetPos = [
+        this.ikTargetProxy.position.x,
+        this.ikTargetProxy.position.y,
+        this.ikTargetProxy.position.z,
+      ];
+      const curQ = this.currentState[this.activeSide];
+      const fk = this.ik.fk(this.activeSide, curQ);
+      try {
+        const solved = this.ik.solve(this.activeSide, fk.rotation, targetPos, curQ);
+        this.currentState[this.activeSide] = [...solved.q];
+        this.updateSingleArmMesh(this.activeSide, solved.q);
+        const [yaw, pitch, roll] = matrixToYpr(fk.rotation);
+        const cartesian = [...targetPos, yaw / DEG, pitch / DEG, roll / DEG];
+        this.callbacks.onInteractiveMove?.(this.activeSide, solved.q, cartesian);
+      } catch {
+        // Target is outside workspace reach; keep last valid arm pose
+      }
+      return;
+    }
+
+    if (this.currentToolMode === 'rotate') {
+      const m = new THREE.Matrix4().makeRotationFromQuaternion(this.ikTargetProxy.quaternion);
+      const e = m.elements;
+      const targetRot = [
+        e[0], e[4], e[8],
+        e[1], e[5], e[9],
+        e[2], e[6], e[10],
+      ];
+      const curQ = this.currentState[this.activeSide];
+      const fk = this.ik.fk(this.activeSide, curQ);
+      try {
+        const solved = this.ik.solve(this.activeSide, targetRot, fk.position, curQ);
+        this.currentState[this.activeSide] = [...solved.q];
+        this.updateSingleArmMesh(this.activeSide, solved.q);
+        const [yaw, pitch, roll] = matrixToYpr(targetRot);
+        const cartesian = [...fk.position, yaw / DEG, pitch / DEG, roll / DEG];
+        this.callbacks.onInteractiveMove?.(this.activeSide, solved.q, cartesian);
+      } catch {
+        // Target rotation outside reachable pose
+      }
+      return;
+    }
+  }
+
+  private handleDragEnd(): void {
+    if (this.currentToolMode === 'translate' || this.currentToolMode === 'rotate') {
+      const q = this.currentState[this.activeSide];
+      const fk = this.ik.fk(this.activeSide, q);
+      const [yaw, pitch, roll] = matrixToYpr(fk.rotation);
+      const cartesian = [...fk.position, yaw / DEG, pitch / DEG, roll / DEG];
+      const label = this.currentToolMode === 'translate'
+        ? `${this.activeSide === 'left' ? '左' : '右'}臂鼠标位置拖拽`
+        : `${this.activeSide === 'left' ? '左' : '右'}臂鼠标位姿旋转`;
+      this.callbacks.onInteractiveCommit?.(this.activeSide, q, cartesian, label);
+      this.syncProxyToActiveArm();
+    }
+  }
+
+  setInteractiveTool(mode: ViewportToolMode): void {
+    this.currentToolMode = mode;
+    this.refFrame.visible = (mode === 'frame');
+
+    if (mode === 'none') {
+      this.transformControls.detach();
+    } else if (mode === 'frame') {
+      this.transformControls.attach(this.refFrame);
+      this.transformControls.setMode('translate');
+      this.transformControls.setSpace('world');
+    } else if (mode === 'translate') {
+      this.syncProxyToActiveArm();
+      this.transformControls.attach(this.ikTargetProxy);
+      this.transformControls.setMode('translate');
+      this.transformControls.setSpace('world');
+    } else if (mode === 'rotate') {
+      this.syncProxyToActiveArm();
+      this.transformControls.attach(this.ikTargetProxy);
+      this.transformControls.setMode('rotate');
+      this.transformControls.setSpace('local');
+    }
+    this.callbacks.onToolChange?.(mode);
+    this.render();
+  }
+
+  getCurrentToolMode(): ViewportToolMode {
+    return this.currentToolMode;
+  }
+
+  setActiveSide(side: Side): void {
+    if (this.activeSide === side) return;
+    this.activeSide = side;
+    if (this.currentToolMode === 'translate' || this.currentToolMode === 'rotate') {
+      this.syncProxyToActiveArm();
+    }
+    this.callbacks.onActiveSideChange?.(side);
+    this.render();
+  }
+
+  getActiveSide(): Side {
+    return this.activeSide;
+  }
+
+  resetRefFrameToOrigin(): void {
+    this.refFrame.position.set(0, 0, 0);
+    this.refFrame.rotation.set(0, 0, 0);
+    if (this.currentToolMode === 'frame') {
+      this.transformControls.attach(this.refFrame);
+    }
+    this.callbacks.onRefFrameChange?.(this.refFrame.position.clone(), this.refFrame.rotation.clone());
+    this.render();
+  }
+
+  getRefFramePose(): { position: THREE.Vector3; rotation: THREE.Euler } {
+    return {
+      position: this.refFrame.position.clone(),
+      rotation: this.refFrame.rotation.clone(),
+    };
+  }
+
+  setCallbacks(callbacks: RendererCallbacks): void {
+    this.callbacks = { ...this.callbacks, ...callbacks };
   }
 
   private placeCylinder(mesh: THREE.Mesh, a: THREE.Vector3, b: THREE.Vector3): void {
@@ -388,6 +670,7 @@ export class ArmRenderer {
   dispose(): void {
     this.disposed = true;
     this.resizeObserver.disconnect();
+    this.transformControls.dispose();
     this.renderer.dispose();
     this.controls.dispose();
     if (this.renderer.domElement.parentElement) {

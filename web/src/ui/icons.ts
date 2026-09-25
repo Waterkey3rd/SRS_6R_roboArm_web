@@ -77,4 +77,11 @@ export const ICONS = {
   ARROW_RIGHT: svg('<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>', 14),
   ROT_CW: svg('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>', 14),
   ROT_CCW: svg('<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>', 14),
+
+  // Blender-style Viewport Tools (Minimalist Monochrome)
+  TOOL_FRAME: svg('<circle cx="12" cy="12" r="7" stroke-dasharray="3 2"/><line x1="12" y1="2" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="22"/><line x1="2" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="2" fill="currentColor"/>', 16),
+  TOOL_TRANSLATE: svg('<polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/>', 16),
+  TOOL_ROTATE: svg('<ellipse cx="12" cy="12" rx="9" ry="4"/><path d="M12 3a9 9 0 0 1 9 9"/><polyline points="18 10 21 12 21 9"/><path d="M12 21a9 9 0 0 1-9-9"/><polyline points="6 14 3 12 3 15"/>', 16),
+  ALIGN_EE: svg('<path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><circle cx="12" cy="12" r="3"/><polyline points="15 7 10 12 15 17"/>', 14),
+  ORIGIN: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/>', 14),
 };

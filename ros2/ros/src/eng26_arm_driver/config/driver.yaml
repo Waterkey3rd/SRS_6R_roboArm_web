@@ -1,0 +1,30 @@
+/**:
+  ros__parameters:
+    use_sim_time: false
+    device: /dev/ttyUSB0
+    baud_rate: 921600
+    frame_id: base_link
+    joint_names:
+      - right_joint_1
+      - right_joint_2
+      - right_joint_3
+      - right_joint_4
+      - right_joint_5
+      - right_joint_6
+      - right_joint_7
+      - left_joint_1
+      - left_joint_2
+      - left_joint_3
+      - left_joint_4
+      - left_joint_5
+      - left_joint_6
+      - left_joint_7
+    io_period_ms: 2
+    heartbeat_period_ms: 50
+    heartbeat_timeout_ms: 300
+    mode_timeout_ms: 300
+    ack_timeout_ms: 200
+    write_timeout_ms: 100
+    reconnect_ms: 1000
+    command_max_age_ms: 200
+    joint_state_timeout_ms: 200

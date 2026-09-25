@@ -612,4 +612,24 @@ export class ControlPanel {
       }
     }
   }
+
+  syncInteractiveState(side: Side, q: number[], cartesian: number[]): void {
+    if (this.currentMode === 'joint') {
+      for (let i = 0; i < 7; i++) {
+        const deg = q[i] * RAD;
+        if (this.jointSliders[side][i]) {
+          this.jointSliders[side][i].value = String(deg);
+          this.jointInputs[side][i].value = deg.toFixed(1);
+          this.updateJointGauge(side, i, deg);
+        }
+      }
+    } else if (this.currentMode === 'cartesian') {
+      for (let i = 0; i < 6; i++) {
+        if (this.cartInputs[side][i]) {
+          this.cartInputs[side][i].value = cartesian[i].toFixed(1);
+        }
+      }
+      this.probeCartesianIK(side);
+    }
+  }
 }

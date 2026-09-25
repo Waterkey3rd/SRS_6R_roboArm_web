@@ -1,0 +1,12 @@
+uint16 HOLD=48
+uint16 CLEAR_FAULT=49
+uint16 TRAJECTORY_START=50
+uint16 TRAJECTORY_CANCEL=51
+CommandContext context
+uint16 command
+uint16 trajectory_id
+---
+# Local queue admission only. Subscribe to command_results BEFORE calling.
+bool accepted
+uint64 ticket
+string message

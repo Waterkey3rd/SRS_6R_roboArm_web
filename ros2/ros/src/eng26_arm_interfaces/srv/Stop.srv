@@ -1,0 +1,6 @@
+# Bypasses epoch, mode, ordinary command window and queue.
+uint64 client_id
+---
+bool queued
+uint64 ticket
+string message
