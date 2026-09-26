@@ -20,3 +20,16 @@ web/dist/
 # Native local build output
 deploy_ik_native.dll
 *.pdb
+
+# ROS2 generated workspaces and nested source repositories
+ros2/ros/build/
+ros2/ros/install/
+ros2/ros/log/
+ros2/ros/datasets/
+ros2/ros/.backup/
+ros2/ros/.vscode/
+ros2/ros/ros2/
+ros2/ros/package.xml
+ros2/ros/udo apt-get install -y ros-humble-diagnostic-updater
+ros2/7RArm-WebView/
+ros2_real/

@@ -1,4 +1,7 @@
+import type { OperationMode } from '../../ros/types';
 import { ICONS } from '../icons';
+
+export type RosStatusKind = 'offline' | 'connecting' | 'connected' | 'ready' | 'error';
 
 export interface TopBarCallbacks {
   onLoadDemo: () => void;
@@ -7,12 +10,22 @@ export interface TopBarCallbacks {
   onOpenIO: () => void;
   onToggleTheme: () => void;
   onOpenHelp: () => void;
+  onSetMode: (mode: OperationMode) => void;
+  onToggleRosConnect: () => void;
+  onEditRosUrl: () => void;
+  onEmergencyStop: () => void;
 }
 
 export class TopBar {
   readonly element: HTMLElement;
   private currentTheme: 'light' | 'dark' = 'light';
+  private currentMode: OperationMode = 'simulation';
   private themeBtn: HTMLButtonElement;
+  private modeButtons: HTMLButtonElement[] = [];
+  private rosStatusEl: HTMLElement;
+  private rosStatusText: HTMLElement;
+  private rosConnectBtn: HTMLButtonElement;
+  private emergencyBtn: HTMLButtonElement;
 
   constructor(private readonly callbacks: TopBarCallbacks) {
     this.element = document.createElement('header');
@@ -23,13 +36,33 @@ export class TopBar {
           <div class="brand-icon">7R</div>
           <span>SRS 7R 双臂机器人控制台</span>
         </div>
-        <div class="status-indicator" title="C++ AdaptiveHybrid IK WebAssembly 引擎已就绪">
+
+        <div class="mode-switch" id="mode-switch" role="group" aria-label="运行模式">
+          <button class="mode-btn active" data-mode="simulation" title="仅使用浏览器本地仿真，不向实机发送指令">
+            <span class="mode-dot simulation"></span>
+            <span>纯仿真</span>
+          </button>
+          <button class="mode-btn" data-mode="hardware" title="连接 ROS2 实机链路，显示实机反馈并可下发 servo_target">
+            <span class="mode-dot hardware"></span>
+            <span>实机接入</span>
+          </button>
+        </div>
+
+        <div class="status-indicator ros-status is-offline" id="ros-status" title="rosbridge 未连接">
           <span class="status-dot"></span>
-          <span>IK 内核在线</span>
+          <span id="ros-status-text">ROS 未连接</span>
         </div>
       </div>
 
       <div class="top-bar-right">
+        <button class="btn btn-secondary btn-sm" id="btn-ros-connect" title="连接/断开 rosbridge WebSocket">
+          <span id="ros-connect-text">连接 ROS</span>
+        </button>
+        <button class="btn btn-ghost btn-icon btn-sm" id="btn-ros-config" title="设置 rosbridge WebSocket 地址"></button>
+          <button class="btn btn-danger btn-sm" id="btn-ros-stop" title="请求 ROS STOP；ros2_real 未提供该服务" style="display: none;">
+          STOP
+        </button>
+
         <button class="btn btn-secondary btn-sm" id="btn-top-demo" title="载入预置实机动作序列">
           <span class="btn-icon-slot">${ICONS.DEMO}</span>
           <span>载入演示动作</span>
@@ -56,6 +89,22 @@ export class TopBar {
     `;
 
     this.themeBtn = this.element.querySelector('#btn-top-theme') as HTMLButtonElement;
+    this.rosStatusEl = this.element.querySelector('#ros-status') as HTMLElement;
+    this.rosStatusText = this.element.querySelector('#ros-status-text') as HTMLElement;
+    this.rosConnectBtn = this.element.querySelector('#btn-ros-connect') as HTMLButtonElement;
+    this.emergencyBtn = this.element.querySelector('#btn-ros-stop') as HTMLButtonElement;
+    this.modeButtons = Array.from(this.element.querySelectorAll<HTMLButtonElement>('.mode-btn'));
+
+    for (const button of this.modeButtons) {
+      button.addEventListener('click', () => {
+        const mode = button.dataset.mode as OperationMode | undefined;
+        if (mode) this.callbacks.onSetMode(mode);
+      });
+    }
+
+    this.rosConnectBtn.addEventListener('click', () => this.callbacks.onToggleRosConnect());
+    this.element.querySelector('#btn-ros-config')?.addEventListener('click', () => this.callbacks.onEditRosUrl());
+    this.emergencyBtn.addEventListener('click', () => this.callbacks.onEmergencyStop());
 
     this.element.querySelector('#btn-top-demo')?.addEventListener('click', () => this.callbacks.onLoadDemo());
     this.element.querySelector('#btn-top-trajectory')?.addEventListener('click', () => this.callbacks.onOpenTrajectory());
@@ -63,6 +112,8 @@ export class TopBar {
     this.element.querySelector('#btn-top-io')?.addEventListener('click', () => this.callbacks.onOpenIO());
     this.themeBtn.addEventListener('click', () => this.callbacks.onToggleTheme());
     this.element.querySelector('#btn-top-help')?.addEventListener('click', () => this.callbacks.onOpenHelp());
+
+    this.setMode('simulation');
   }
 
   setTheme(theme: 'light' | 'dark'): void {
@@ -71,5 +122,36 @@ export class TopBar {
     if (icon) {
       icon.innerHTML = theme === 'light' ? ICONS.SUN : ICONS.MOON;
     }
+  }
+
+  setMode(mode: OperationMode): void {
+    this.currentMode = mode;
+    for (const button of this.modeButtons) {
+      button.classList.toggle('active', button.dataset.mode === mode);
+    }
+    this.emergencyBtn.style.display = mode === 'hardware' ? 'inline-flex' : 'none';
+  }
+
+  get mode(): OperationMode {
+    return this.currentMode;
+  }
+
+  setRosStatus(kind: RosStatusKind, text: string, title?: string): void {
+    const classes = ['status-indicator', 'ros-status', `is-${kind}`];
+    this.rosStatusEl.className = classes.join(' ');
+    this.rosStatusEl.title = title ?? text;
+    this.rosStatusText.textContent = text;
+    if (kind === 'connected' || kind === 'ready') {
+      this.rosConnectBtn.textContent = '断开 ROS';
+    } else if (kind === 'connecting') {
+      this.rosConnectBtn.textContent = '连接中';
+    } else {
+      this.rosConnectBtn.textContent = '连接 ROS';
+    }
+  }
+
+  setHardwareRunning(running: boolean): void {
+    this.emergencyBtn.textContent = 'STOP';
+    this.emergencyBtn.classList.toggle('is-running', running);
   }
 }

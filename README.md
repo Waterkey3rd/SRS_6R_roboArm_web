@@ -121,3 +121,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\wasm\build_wasm.ps1
 
 速度规划采用零起终速度、零起终加速度的五次曲线。左右臂分别按共享的关节速度和
 加速度上限计算统一时长，先完成的一侧保持终点。当前默认限制是原始部署值的 2 倍。
+
+## ROS2 实机 Web 接入
+
+当前 Web 默认使用 `ros2_real` 话题：通过 rosbridge WebSocket 订阅
+`/joint_states`（`sensor_msgs/msg/JointState`），并向 `/joint_command` 发布同样类型的
+14 轴目标，顺序为右臂 7 轴后接左臂 7 轴，单位为弧度。连接地址默认是页面主机的
+`9090` 端口，可用 `?rosbridge=ws://主机:端口` 覆盖；只有需要旧的
+`eng26_web_bridge` JSON 合同才使用 `?rosProfile=web_bridge`。
+
+`ros2_real` 当前没有 driver 状态、命令结果或 STOP 服务，因此 Web 端只能按关节反馈新鲜度
+判断是否可下发，具体模式和安全门禁仍由串口桥节点执行。夹爪下发和网页 STOP 在该配置下会
+明确提示未提供服务。

@@ -883,171 +883,6 @@ body {
   border: 1px solid var(--right-arm-border);
 }
 
-.hud-chip.ref {
-  background: rgba(217, 119, 6, 0.12);
-  color: #d97706;
-  border: 1px solid rgba(217, 119, 6, 0.35);
-}
-
-/* =========================================================
-   Blender-Style Left Vertical Toolbar (Monochrome Aesthetic)
-   ========================================================= */
-
-.viewport-overlay-left-toolbar {
-  position: absolute;
-  top: 130px;
-  left: 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  z-index: 5;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  padding: 6px 5px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-md);
-  user-select: none;
-}
-
-[data-theme="dark"] .viewport-overlay-left-toolbar {
-  background: rgba(17, 25, 39, 0.85);
-  border-color: var(--border-color);
-}
-
-/* Arm Switcher in Left Toolbar */
-.vtool-arm-switcher {
-  display: flex;
-  background: var(--bg-surface-subtle);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 2px;
-  gap: 2px;
-}
-
-.vtool-arm-btn {
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 800;
-  font-family: var(--font-mono);
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.vtool-arm-btn:hover {
-  color: var(--text-primary);
-}
-
-.vtool-arm-btn[data-arm="left"].active {
-  background: var(--left-arm-primary);
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(2, 132, 199, 0.3);
-}
-
-.vtool-arm-btn[data-arm="right"].active {
-  background: var(--right-arm-primary);
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(234, 88, 12, 0.3);
-}
-
-/* Vertical Toolbar Dividers */
-.vtool-divider {
-  width: 24px;
-  height: 1px;
-  background: var(--border-color);
-  margin: 2px 0;
-}
-
-/* Tool Buttons Group */
-.vtool-buttons-group,
-.vtool-extra-group {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-
-.vtool-btn {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  padding: 0;
-}
-
-.vtool-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--border-color);
-}
-
-/* Active State: Blender-like high-contrast monochrome highlight */
-.vtool-btn.active {
-  background: #0f172a;
-  color: #ffffff;
-  border-color: #0f172a;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-}
-
-[data-theme="dark"] .vtool-btn.active {
-  background: #f1f5f9;
-  color: #090e17;
-  border-color: #f1f5f9;
-  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.2);
-}
-
-.vtool-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.vtool-badge {
-  position: absolute;
-  bottom: 2px;
-  right: 3px;
-  font-size: 9px;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  line-height: 1;
-  opacity: 0.65;
-  pointer-events: none;
-}
-
-.vtool-btn.active .vtool-badge {
-  opacity: 0.9;
-}
-
-/* Sub-action buttons */
-.vtool-btn-sub {
-  width: 32px;
-  height: 32px;
-  color: var(--text-muted);
-}
-
-.vtool-btn-sub:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-}
-
 /* Camera Toolbar Overlay */
 .viewport-overlay-bottom-left {
   position: absolute;
@@ -1248,4 +1083,135 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* =========================================================
+   Operation Mode & ROS Connection Status
+   ========================================================= */
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background-color: var(--bg-surface-subtle);
+}
+
+.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.mode-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.mode-btn.active {
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+}
+
+.mode-dot.simulation {
+  background-color: var(--left-arm-primary);
+}
+
+.mode-dot.hardware {
+  background-color: var(--status-success);
+}
+
+.ros-status.is-offline {
+  color: var(--text-muted);
+  background-color: var(--bg-surface-subtle);
+  border-color: var(--border-color);
+}
+
+.ros-status.is-connecting {
+  color: var(--status-warning);
+  background-color: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
+}
+
+.ros-status.is-connected,
+.ros-status.is-ready {
+  color: var(--status-success);
+  background-color: var(--status-success-bg);
+  border-color: var(--status-success-border);
+}
+
+.ros-status.is-error {
+  color: var(--status-danger);
+  background-color: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+}
+
+.btn-danger {
+  background-color: var(--status-danger);
+  color: #ffffff;
+  border-color: var(--status-danger);
+  font-weight: 700;
+}
+
+.btn-danger:hover {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* =========================================================
+   Viewport Data Source Indicator
+   ========================================================= */
+.hud-source-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--border-color);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.hud-source-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--left-arm-primary);
+}
+
+.hud-source-line.stale {
+  color: var(--status-danger);
+}
+
+.hud-source-line.stale .hud-source-dot {
+  background-color: var(--status-danger);
+  animation: source-blink 1s ease-in-out infinite;
+}
+
+@keyframes source-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
 }

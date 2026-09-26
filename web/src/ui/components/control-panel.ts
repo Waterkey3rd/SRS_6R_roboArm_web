@@ -42,6 +42,9 @@ export class ControlPanel {
   private durationLabel!: HTMLElement;
   private executeBtn!: HTMLButtonElement;
   private deltaTipEl!: HTMLElement;
+  private hardwareMode = false;
+  private hardwareReady = false;
+  private hardwareReason = '未连接';
 
   constructor(
     private readonly container: HTMLElement,
@@ -98,7 +101,7 @@ export class ControlPanel {
           </div>
           <button class="btn btn-primary btn-lg" id="btn-execute-motion" style="flex: 2;" title="执行当前姿态运动 (Ctrl+Enter)">
             <span class="btn-icon-slot">${ICONS.EXECUTE}</span>
-            <span>执行运动</span>
+            <span id="execute-btn-text">执行运动</span>
           </button>
           <button class="btn btn-secondary btn-lg" id="btn-undo-motion" style="flex: 1;" title="撤销回退至上一状态 (Ctrl+Z)">
             <span class="btn-icon-slot">${ICONS.UNDO}</span>
@@ -161,6 +164,27 @@ export class ControlPanel {
     return Math.round(parseFloat(this.durationSlider.value) * 1000);
   }
 
+  setHardwareStatus(enabled: boolean, ready: boolean, reason: string): void {
+    this.hardwareMode = enabled;
+    this.hardwareReady = ready;
+    this.hardwareReason = reason;
+
+    const text = this.element.querySelector('#execute-btn-text');
+    if (text) text.textContent = enabled ? '下发到实机' : '执行运动';
+
+    const deltaText = this.deltaTipEl?.querySelector('span:last-child');
+    if (deltaText) deltaText.textContent = enabled ? '微调按键即单步下发' : '微调按键即点即动';
+
+    if (this.currentMode === 'delta') {
+      this.updateFooterMode();
+      return;
+    }
+
+    this.executeBtn.disabled = enabled && !ready;
+    this.executeBtn.title = enabled
+      ? (ready ? '将当前目标通过 ROS2 实机命令话题下发到实机' : `实机未就绪：${reason}`)
+      : '执行当前姿态运动 (Ctrl+Enter)';
+  }
   private renderModeContent(): void {
     const area = this.element.querySelector('#dock-content-area') as HTMLElement;
     area.innerHTML = '';
@@ -559,6 +583,10 @@ export class ControlPanel {
   }
 
   private handleDeltaJog(side: Side, axis: number, dir: number): void {
+    if (this.hardwareMode && !this.hardwareReady) {
+      showToast({ title: '实机未就绪', message: this.hardwareReason || '请先连接 ROS 并使实机进入 PC_DEBUG/VLA 模式', type: 'warning' });
+      return;
+    }
     const delta = { left: [0, 0, 0, 0, 0, 0], right: [0, 0, 0, 0, 0, 0] };
     const step = axis < 3 ? this.deltaStepMm : this.deltaStepDeg;
     delta[side][axis] = step * dir;
@@ -569,6 +597,10 @@ export class ControlPanel {
   // Execution trigger
   // ==========================================
   handleExecute(): void {
+    if (this.hardwareMode && !this.hardwareReady) {
+      showToast({ title: '实机未就绪', message: this.hardwareReason || '请先连接 ROS 并使实机进入 PC_DEBUG/VLA 模式', type: 'warning' });
+      return;
+    }
     const duration = this.getDurationMs();
 
     if (this.currentMode === 'joint') {
@@ -587,14 +619,16 @@ export class ControlPanel {
   }
 
   // Sync controls with robot current state
-  syncState(state: ArmState): void {
+  syncState(state: ArmState, options: { respectFocus?: boolean } = {}): void {
     if (this.currentMode === 'joint') {
       for (const side of SIDES) {
         for (let i = 0; i < 7; i++) {
           const deg = state[side][i] * RAD;
           if (this.jointSliders[side][i]) {
-            this.jointSliders[side][i].value = String(deg);
-            this.jointInputs[side][i].value = deg.toFixed(1);
+            const sliderFocused = document.activeElement === this.jointSliders[side][i];
+            const inputFocused = document.activeElement === this.jointInputs[side][i];
+            if (!options.respectFocus || !sliderFocused) this.jointSliders[side][i].value = String(deg);
+            if (!options.respectFocus || !inputFocused) this.jointInputs[side][i].value = deg.toFixed(1);
             this.updateJointGauge(side, i, deg);
           }
         }
@@ -605,31 +639,12 @@ export class ControlPanel {
         const c = snapshot[side].CartesianSpace;
         for (let i = 0; i < 6; i++) {
           if (this.cartInputs[side][i]) {
-            this.cartInputs[side][i].value = c[i].toFixed(1);
+            const focused = document.activeElement === this.cartInputs[side][i];
+            if (!options.respectFocus || !focused) this.cartInputs[side][i].value = c[i].toFixed(1);
           }
         }
-        this.probeCartesianIK(side);
+        if (!options.respectFocus) this.probeCartesianIK(side);
       }
-    }
-  }
-
-  syncInteractiveState(side: Side, q: number[], cartesian: number[]): void {
-    if (this.currentMode === 'joint') {
-      for (let i = 0; i < 7; i++) {
-        const deg = q[i] * RAD;
-        if (this.jointSliders[side][i]) {
-          this.jointSliders[side][i].value = String(deg);
-          this.jointInputs[side][i].value = deg.toFixed(1);
-          this.updateJointGauge(side, i, deg);
-        }
-      }
-    } else if (this.currentMode === 'cartesian') {
-      for (let i = 0; i < 6; i++) {
-        if (this.cartInputs[side][i]) {
-          this.cartInputs[side][i].value = cartesian[i].toFixed(1);
-        }
-      }
-      this.probeCartesianIK(side);
     }
   }
 }
