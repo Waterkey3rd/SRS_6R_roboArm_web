@@ -498,7 +498,7 @@ export class App {
       const effectiveDurationMs = this.plannedHardwareDuration(start, target, durationMs);
       this.viewportHud.showMotionProgress(true, `${label}下发中...`);
       await this.hardwareExecutor.executeSingle(target, effectiveDurationMs);
-      showToast({ title: '实机下发成功', message: `${label}已发送至 ${loadRosProfile() === 'ros2_real' ? '/joint_command' : '/arm_web/servo_target'}`, type: 'success' });
+      showToast({ title: loadRosProfile() === 'ros2_real' ? '实机命令已发布' : '实机下发成功', message: `${label}已发送至 ${loadRosProfile() === 'ros2_real' ? '/joint_command' : '/arm_web/servo_target'}；ros2_real 不返回 MCU 执行结果`, type: 'success' });
     } catch (err: any) {
       showToast({ title: '实机下发失败', message: err.message || String(err), type: 'danger' });
     } finally {
