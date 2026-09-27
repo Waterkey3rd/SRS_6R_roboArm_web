@@ -31,5 +31,6 @@ ros2/ros/.vscode/
 ros2/ros/ros2/
 ros2/ros/package.xml
 ros2/ros/udo apt-get install -y ros-humble-diagnostic-updater
+ros2/ros/run_logs/
 ros2/7RArm-WebView/
 ros2_real/

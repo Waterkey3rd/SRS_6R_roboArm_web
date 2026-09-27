@@ -1161,7 +1161,12 @@ void Ros2UsbBridge::handleJointState(
     const uint8_t* payload,
     std::size_t size)
 {
-    if (size != 118)
+    // 兼容两种固件变体：
+    //   118 = 6(timestamp+epoch) + 28 float，夹爪状态由心跳帧携带
+    //   120 = 同上 + 2 字节左右夹爪状态（旧固件，附在末尾）
+    const bool has_gripper = (size == 120);
+
+    if (size != 118 && !has_gripper)
     {
         RCLCPP_WARN_THROTTLE(
             get_logger(),
@@ -1277,6 +1282,29 @@ void Ros2UsbBridge::handleJointState(
     right_q[1],
     left_q[0],
     left_q[1]);
+
+    if (has_gripper)
+    {
+        const uint8_t left_gripper = payload[118];
+        const uint8_t right_gripper = payload[119];
+
+        // Close/Open/Free/Suspend = 0/1/2/3；非法值不影响关节数据，仅跳过夹爪发布
+        if (left_gripper > 3 || right_gripper > 3)
+        {
+            RCLCPP_WARN_THROTTLE(
+                get_logger(),
+                *get_clock(),
+                2000,
+                "Invalid gripper state in JointState (epoch=%u), skipping gripper publish",
+                static_cast<unsigned>(epoch));
+        }
+        else
+        {
+            publishGripperState(
+                left_gripper,
+                right_gripper);
+        }
+    }
 
     publishJointState(
         right_q,

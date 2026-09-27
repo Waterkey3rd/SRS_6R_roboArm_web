@@ -250,12 +250,53 @@ body {
 
 .dock-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-surface-subtle);
   flex-shrink: 0;
+}
+
+/* 跟随实机反馈开关 */
+.follow-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--status-success-border);
+  background: var(--status-success-bg);
+  color: var(--status-success);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.follow-toggle:hover {
+  filter: brightness(1.08);
+}
+
+.follow-toggle .follow-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-success);
+  box-shadow: 0 0 6px var(--status-success);
+}
+
+.follow-toggle.off {
+  border-color: var(--border-color);
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+}
+
+.follow-toggle.off .follow-indicator {
+  background: var(--text-muted);
+  box-shadow: none;
 }
 
 .segmented-nav {
@@ -306,6 +347,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* 滚动容器内的 flex 子项禁止收缩：否则视口不够高时卡片被压扁、
+   内容溢出且永不出滚动条，下部关节（J4+）被 footer/时间轴遮挡无法点击 */
+.dock-scroll-area > * {
+  flex-shrink: 0;
 }
 
 /* Bottom Execution Bar in Dock */

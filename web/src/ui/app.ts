@@ -128,6 +128,10 @@ export class App {
       onExecuteDelta: (values, duration) => this.executeDelta(values, duration),
       onUndo: () => this.undo(),
       onReset: () => this.reset(),
+      onFollowStateChange: (follow) => {
+        if (follow) this.controlPanel.syncState(this.getDisplayState());
+        showToast({ message: follow ? '已开启：数值跟随实机反馈' : '已暂停跟随：数值保持手动输入', type: 'info' });
+      },
     });
 
     // Bottom Timeline Dock
@@ -205,7 +209,9 @@ export class App {
     const cur = this.getDisplayState();
     this.renderer.update(cur);
     this.viewportHud.update(cur);
-    this.controlPanel.syncState(cur);
+    if (this.operationMode !== 'hardware' || this.controlPanel.isFollowEnabled()) {
+      this.controlPanel.syncState(cur);
+    }
   }
 
   private syncDisplayOnly(): void {
@@ -249,10 +255,12 @@ export class App {
       this.hardwareStateAtMs = Date.now();
       if (this.operationMode === 'hardware') {
         this.syncDisplayOnly();
-        const now = performance.now();
-        if (now - this.lastControlSyncAtMs > 250) {
-          this.lastControlSyncAtMs = now;
-          this.controlPanel.syncState(state, { respectFocus: true });
+        if (this.controlPanel.isFollowEnabled()) {
+          const now = performance.now();
+          if (now - this.lastControlSyncAtMs > 250) {
+            this.lastControlSyncAtMs = now;
+            this.controlPanel.syncState(state, { respectFocus: true });
+          }
         }
       }
     });

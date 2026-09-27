@@ -15,6 +15,7 @@ export interface ControlPanelCallbacks {
   onUndo: () => void;
   onReset: () => void;
   onPreviewStateChange?: (state: ArmState) => void;
+  onFollowStateChange?: (follow: boolean) => void;
 }
 
 export class ControlPanel {
@@ -45,6 +46,21 @@ export class ControlPanel {
   private hardwareMode = false;
   private hardwareReady = false;
   private hardwareReason = '未连接';
+
+  // 数值跟随实机反馈开关；关闭后输入框保持用户手动编辑的目标值
+  private followState = true;
+  private followToggle!: HTMLButtonElement;
+  private followText!: HTMLElement;
+
+  // 当前显示值缓存（跟随源或用户输入），用于模式切换后恢复，不被仿真初始值冲掉
+  private jointValueCache: Record<Side, number[]> = {
+    left: new Array(7).fill(0),
+    right: new Array(7).fill(0),
+  };
+  private cartValueCache: Record<Side, number[]> = {
+    left: new Array(6).fill(0),
+    right: new Array(6).fill(0),
+  };
 
   constructor(
     private readonly container: HTMLElement,
@@ -79,8 +95,11 @@ export class ControlPanel {
             <span>Delta 微调</span>
           </button>
         </div>
+        <button class="follow-toggle" id="btn-follow-state" title="开启：姿态数值自动跟随实机最新反馈；关闭：数值保持手动输入的目标，便于编辑后统一下发">
+          <span class="follow-indicator"></span>
+          <span id="follow-state-text">跟随实机反馈</span>
+        </button>
       </div>
-
       <!-- Scrollable Dock Content -->
       <div class="dock-scroll-area" id="dock-content-area">
         <!-- Will be populated dynamically based on mode -->
@@ -134,6 +153,14 @@ export class ControlPanel {
       });
     });
 
+    // 跟随实机反馈开关
+    this.followToggle = this.element.querySelector('#btn-follow-state') as HTMLButtonElement;
+    this.followText = this.element.querySelector('#follow-state-text') as HTMLElement;
+    this.followToggle.addEventListener('click', () => {
+      this.setFollowState(!this.followState);
+      this.callbacks.onFollowStateChange?.(this.followState);
+    });
+
     // Execute & Undo
     this.executeBtn.addEventListener('click', () => this.handleExecute());
     this.element.querySelector('#btn-undo-motion')?.addEventListener('click', () => this.callbacks.onUndo());
@@ -148,6 +175,20 @@ export class ControlPanel {
     this.currentMode = mode;
     this.renderModeContent();
     this.updateFooterMode();
+  }
+
+  isFollowEnabled(): boolean {
+    return this.followState;
+  }
+
+  setFollowState(follow: boolean): void {
+    this.followState = follow;
+    if (this.followToggle) {
+      this.followToggle.classList.toggle('off', !follow);
+    }
+    if (this.followText) {
+      this.followText.textContent = follow ? '跟随实机反馈' : '已暂停跟随（可手动编辑）';
+    }
   }
 
   private updateFooterMode(): void {
@@ -265,7 +306,9 @@ export class ControlPanel {
 
         const min = this.limitsDeg[side].lower[i];
         const max = this.limitsDeg[side].upper[i];
-        const currentDeg = currentState[side][i] * RAD;
+        const currentDeg = this.followState
+          ? currentState[side][i] * RAD
+          : this.jointValueCache[side][i];
 
         row.innerHTML = `
           <div class="joint-header">
@@ -306,6 +349,7 @@ export class ControlPanel {
         slider.addEventListener('input', () => {
           const val = parseFloat(slider.value);
           num.value = val.toFixed(1);
+          this.jointValueCache[side][i] = val;
           this.updateJointGauge(side, i, val);
         });
 
@@ -315,6 +359,7 @@ export class ControlPanel {
           val = Math.max(min, Math.min(max, val));
           num.value = val.toFixed(1);
           slider.value = String(val);
+          this.jointValueCache[side][i] = val;
           this.updateJointGauge(side, i, val);
         });
 
@@ -334,6 +379,7 @@ export class ControlPanel {
     const min = this.limitsDeg[side].lower[index];
     const max = this.limitsDeg[side].upper[index];
     const clamped = Math.max(min, Math.min(max, deg));
+    this.jointValueCache[side][index] = clamped;
     if (this.jointSliders[side][index]) {
       this.jointSliders[side][index].value = String(clamped);
       this.jointInputs[side][index].value = clamped.toFixed(1);
@@ -411,12 +457,16 @@ export class ControlPanel {
 
       parent.appendChild(card);
 
-      const cartVals = snapshot[side].CartesianSpace;
+      const cartVals = this.followState ? snapshot[side].CartesianSpace : this.cartValueCache[side];
       for (let i = 0; i < 6; i++) {
         const inp = card.querySelector(`#cart-${side}-${i}`) as HTMLInputElement;
         inp.value = cartVals[i].toFixed(1);
+        this.cartValueCache[side][i] = cartVals[i];
         this.cartInputs[side].push(inp);
-        inp.addEventListener('input', () => this.probeCartesianIK(side));
+        inp.addEventListener('input', () => {
+          this.cartValueCache[side][i] = parseFloat(inp.value) || 0;
+          this.probeCartesianIK(side);
+        });
       }
 
       this.cartIkBadges[side] = card.querySelector(`#cart-probe-${side}`) as HTMLElement;
@@ -629,6 +679,7 @@ export class ControlPanel {
             const inputFocused = document.activeElement === this.jointInputs[side][i];
             if (!options.respectFocus || !sliderFocused) this.jointSliders[side][i].value = String(deg);
             if (!options.respectFocus || !inputFocused) this.jointInputs[side][i].value = deg.toFixed(1);
+            this.jointValueCache[side][i] = deg;
             this.updateJointGauge(side, i, deg);
           }
         }
@@ -641,6 +692,7 @@ export class ControlPanel {
           if (this.cartInputs[side][i]) {
             const focused = document.activeElement === this.cartInputs[side][i];
             if (!options.respectFocus || !focused) this.cartInputs[side][i].value = c[i].toFixed(1);
+            this.cartValueCache[side][i] = c[i];
           }
         }
         if (!options.respectFocus) this.probeCartesianIK(side);
