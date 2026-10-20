@@ -43,7 +43,8 @@ describe('USB simulation without ROS', () => {
     app.topBar = { setRosStatus: vi.fn(), setControllerStatus: vi.fn(), setControllerDataType: vi.fn(), setMode: vi.fn(), setHardwareRunning: vi.fn(), setRecordingStatus: vi.fn() };
     app.controlPanel = { setHardwareStatus: vi.fn(), syncState: vi.fn(), isFollowEnabled: () => true };
     app.viewportHud = { setSource: vi.fn(), update: vi.fn(), showMotionProgress: vi.fn() };
-    app.timeline = { setPlayState: vi.fn(), updateTimeline: vi.fn() };
+    app.timeline = { setPlayState: vi.fn(), updateTimeline: vi.fn(), selectedRange: null,
+      selectRange: vi.fn((from: number, to: number) => { app.timeline.selectedRange = { from, to }; }), clearSelection: vi.fn() };
     app.renderer = { update: vi.fn() };
     app.showControllerError = vi.fn();
     app.setupRos();
@@ -249,5 +250,54 @@ describe('USB simulation without ROS', () => {
     app.setOperationMode('hardware');
     expect(app.recording).toBeNull();
     expect(controller.history.length).toBeGreaterThan(1);
+  });
+
+  it('copies a range through the clipboard, pastes at the chosen point, and bulk deletes it', () => {
+    [0, 5, 10].forEach(q => controller.commandJoints({ right: [q, 0, 0, 0, 0, 0] } as any));
+    const contents = new Map<string, string>();
+    const event = { preventDefault: vi.fn(), clipboardData: {
+      setData: (type: string, value: string) => contents.set(type, value),
+      getData: (type: string) => contents.get(type) ?? '',
+    } };
+    app.timeline.selectedRange = { from: 0, to: 1 };
+    app.copySelectedKeypoints(event);
+    expect(JSON.parse(contents.get('text/plain')!).sequences.right.frames).toHaveLength(3);
+    app.timeline.selectedRange = null;
+    app.activeKeypointIndex = 2;
+    app.pasteKeypoints(event);
+    expect(controller.history).toHaveLength(5);
+    expect(app.timeline.selectRange).toHaveBeenLastCalledWith(3, 4);
+    app.deleteKeypoints(3, 4);
+    expect(controller.history).toHaveLength(3);
+    expect(app.rosClient.publishControllerJoints).not.toHaveBeenCalled();
+    expect(app.rosClient.publishControllerPose).not.toHaveBeenCalled();
+    // A sequence copied from another page uses the same public JSON format.
+    app.keypointClipboard = null;
+    app.timeline.selectedRange = null;
+    app.pasteKeypoints(event);
+    expect(controller.history).toHaveLength(5);
+  });
+
+  it('preserves native text shortcuts and blocks sequence edits during hardware control', () => {
+    [0, 5, 10].forEach(q => controller.commandJoints({ right: [q, 0, 0, 0, 0, 0] } as any));
+    app.timeline.selectedRange = { from: 0, to: 1 };
+    const handlers: Record<string, (event: any) => void> = {};
+    (window as any).addEventListener = (name: string, listener: (event: any) => void) => { handlers[name] = listener; };
+    vi.stubGlobal('document', { querySelector: () => null });
+    app.bindKeyboardShortcuts();
+    const data = new Map<string, string>();
+    const event = { target: { closest: () => ({ tagName: 'INPUT' }) }, preventDefault: vi.fn(),
+      clipboardData: { setData: (type: string, value: string) => data.set(type, value), getData: (type: string) => data.get(type) ?? '' } };
+    handlers.copy(event);
+    handlers.keydown({ ...event, key: 'Delete' });
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(controller.history).toHaveLength(3);
+    event.target.closest = () => null as any;
+    handlers.copy(event);
+    expect(event.preventDefault).toHaveBeenCalled();
+    app.operationMode = 'hardware';
+    handlers.paste(event);
+    handlers.keydown({ ...event, key: 'Delete' });
+    expect(controller.history).toHaveLength(3);
   });
 });

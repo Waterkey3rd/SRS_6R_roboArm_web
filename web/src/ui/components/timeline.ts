@@ -1,6 +1,7 @@
 import type { RoboArmController } from '../../controller';
 import type { HistoryPoint } from '../../types';
 import { ICONS } from '../icons';
+import { TimelineSelection, type TimelineRange } from './timeline-selection';
 
 export interface TimelineCallbacks {
   onPlayPause: () => void;
@@ -25,7 +26,8 @@ export class TimelineDock {
 
   private isPlaying = false;
   private isLooping = false;
-  private selectedIndex = -1;
+  private readonly selection = new TimelineSelection();
+  private historySnapshot: HistoryPoint[] = [];
 
   constructor(
     private readonly container: HTMLElement,
@@ -69,8 +71,14 @@ export class TimelineDock {
         </div>
       </div>
 
+      <div class="timeline-selection-bar">
+        <span id="timeline-selection-status" role="status">未选择范围</span>
+        <span>Ctrl+点击起点，再 Ctrl+点击终点 · Delete 删除 · Ctrl+C 复制 · Ctrl+V 粘贴</span>
+        <button class="btn btn-ghost btn-sm" id="btn-tl-clear-selection" title="取消范围选择 (Esc)" disabled>取消选择</button>
+      </div>
+
       <!-- Keypoints Cards Filmstrip -->
-      <div class="keypoints-filmstrip" id="keypoints-filmstrip">
+      <div class="keypoints-filmstrip" id="keypoints-filmstrip" role="listbox" aria-label="动作关键点" aria-multiselectable="true">
         <!-- Rendered dynamically -->
       </div>
     `;
@@ -106,6 +114,7 @@ export class TimelineDock {
       const progress = (parseFloat(this.scrubber.value) || 0) / 1000;
       this.callbacks.onScrub(progress);
     });
+    this.element.querySelector('#btn-tl-clear-selection')?.addEventListener('click', () => this.clearSelection());
 
     this.updateTimeline();
   }
@@ -128,10 +137,37 @@ export class TimelineDock {
     this.timeLabel.textContent = `${currentTimeS.toFixed(2)}s / ${totalTimeS.toFixed(2)}s (${count} 关键点)`;
   }
 
+  get selectedRange(): TimelineRange | null { return this.selection.range; }
+
+  clearSelection(): void { this.selection.clear(); this.updateSelectionStyles(); }
+
+  selectRange(from: number, to: number): void {
+    if (from < 0 || to < from || to >= this.controller.history.length) return;
+    this.selection.setRange(from, to);
+    this.updateSelectionStyles();
+  }
+
+  private updateSelectionStyles(): void {
+    const range = this.selectedRange;
+    this.filmstrip.querySelectorAll<HTMLElement>('.keypoint-card').forEach(card => {
+      const index = Number(card.dataset.keypointIndex);
+      const selected = !!range && index >= range.from && index <= range.to;
+      card.classList.toggle('selected', selected);
+      card.setAttribute('aria-selected', String(selected));
+    });
+    const status = this.element.querySelector('#timeline-selection-status') as HTMLElement;
+    status.textContent = range ? `已选 #${range.from + 1}–#${range.to + 1}（${range.to - range.from + 1} 点）` : '未选择范围';
+    const clear = this.element.querySelector('#btn-tl-clear-selection') as HTMLButtonElement;
+    clear.disabled = !range;
+  }
+
   updateTimeline(activePointIndex = -1): void {
     const history = this.controller.history;
+    if (history.length !== this.historySnapshot.length || history.some((point, i) => point !== this.historySnapshot[i])) {
+      this.selection.clear();
+    }
+    this.historySnapshot = [...history];
     this.filmstrip.innerHTML = '';
-    this.selectedIndex = activePointIndex;
 
     const plannedDurations = history.map(point => this.controller.plannedDuration(point));
     let totalDurationMs = 0;
@@ -146,12 +182,17 @@ export class TimelineDock {
           <span>尚无动作关键点。可通过右侧控制台执行运动，或点击上方“函数轨迹”添加关键点</span>
         </div>
       `;
+      this.updateSelectionStyles();
       return;
     }
 
     history.forEach((point, idx) => {
       const card = document.createElement('div');
       card.className = `keypoint-card ${idx === activePointIndex ? 'active' : ''}`;
+      card.dataset.keypointIndex = String(idx);
+      card.setAttribute('role', 'option');
+      card.setAttribute('aria-label', `关键点 #${idx + 1} ${point.label}`);
+      card.tabIndex = 0;
 
       const isCartesian = point.frameTargets.right.space === 'CartesianSpace';
       const spaceLabel = isCartesian ? '笛卡尔' : '关节角';
@@ -175,6 +216,13 @@ export class TimelineDock {
       // Click to select/restore
       card.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).closest('button')) return;
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          this.selection.selectEndpoint(idx);
+          this.updateSelectionStyles();
+          return;
+        }
+        this.clearSelection();
         this.callbacks.onSelectKeypoint(idx);
       });
 
@@ -190,6 +238,7 @@ export class TimelineDock {
 
       this.filmstrip.appendChild(card);
     });
+    this.updateSelectionStyles();
 
     if (activePointIndex >= 0) {
       const activeCard = this.filmstrip.children[activePointIndex] as HTMLElement;

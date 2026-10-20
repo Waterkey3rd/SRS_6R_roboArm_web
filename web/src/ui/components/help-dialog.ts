@@ -480,6 +480,15 @@ export class HelpDialog {
           <kbd class="guide-kbd">Ctrl + Z</kbd>
           <span>回退 / 撤销上一运动状态</span>
 
+          <kbd class="guide-kbd">Ctrl + 点击两端</kbd>
+          <span>先 Ctrl+点击起点，再 Ctrl+点击终点，选中包含两端的连续动作范围</span>
+
+          <kbd class="guide-kbd">Delete</kbd>
+          <span>删除选中的全部动作点</span>
+
+          <kbd class="guide-kbd">Ctrl + C / V</kbd>
+          <span>复制范围 / 粘贴到当前点击的动作点或选中范围之后</span>
+
           <kbd class="guide-kbd">F2</kbd>
           <span>打开当前选中关键点编辑与详情弹窗</span>
 
@@ -487,7 +496,7 @@ export class HelpDialog {
           <span>快速切换视角（Alt+4 透视、Alt+2 顶视、Alt+1 正视、Alt+3 侧视）</span>
 
           <kbd class="guide-kbd">Esc</kbd>
-          <span>关闭当前弹窗，或退出工具拖拽恢复纯观察状态</span>
+          <span>取消动作范围选择、关闭当前弹窗，或退出工具拖拽恢复纯观察状态</span>
         </div>
       </div>
 

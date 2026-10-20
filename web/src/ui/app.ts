@@ -9,8 +9,8 @@ import { HardwareExecutor } from '../runtime/hardware-executor';
 import { MotionRecorder } from '../runtime/motion-recorder';
 import { HomologousController } from '../serial/homologous-controller';
 import { buildHardwareFrame, buildHardwarePlan, type HardwareFrame } from '../runtime/hardware-plan';
-import { cartesianTarget, solveTarget } from '../sequence';
-import type { ArmState, Side } from '../types';
+import { cartesianTarget, importSequence, solveTarget } from '../sequence';
+import type { ArmState, HistoryPoint, Side } from '../types';
 import { cloneState, SIDES } from '../types';
 import { ControlPanel } from './components/control-panel';
 import { HelpDialog } from './components/help-dialog';
@@ -38,6 +38,7 @@ export class App {
 
   private currentTheme: 'light' | 'dark' = 'light';
   private activeKeypointIndex = -1;
+  private keypointClipboard: { text: string; points: HistoryPoint[] } | null = null;
 
   // Animation & Playback state
   private isAnimating = false;
@@ -1088,25 +1089,76 @@ export class App {
 
   // =========================================================
   private deleteKeypoint(index: number): void {
+    this.deleteKeypoints(index, index);
+  }
+
+  private canEditSequence(): boolean {
     if (this.operationMode === 'hardware') {
       showToast({ message: '实机模式不会修改仿真动作序列；请切回纯仿真模式再编辑', type: 'warning' });
-      return;
+      return false;
     }
-    if (this.isAnimating) return;
-    this.stopPlayback();
-    if (this.controller.history.length <= 1) {
-      this.reset();
-      return;
+    if (this.simulationControlledByUsb()) return false;
+    if (this.recording || this.isAnimating) {
+      showToast({ message: '请先停止录制或等待运动过渡完成，再编辑动作序列', type: 'warning' });
+      return false;
     }
+    return true;
+  }
 
+  private deleteKeypoints(from: number, to: number): void {
+    if (!this.canEditSequence()) return;
+    this.stopPlayback();
     try {
-      this.controller.deleteHistory(index);
-      this.activeKeypointIndex = Math.min(this.activeKeypointIndex, this.controller.history.length - 1);
+      this.controller.deleteHistoryRange(from, to);
+      this.activeKeypointIndex = Math.min(from, this.controller.history.length - 1);
+      if (this.activeKeypointIndex >= 0) this.controller.restore(this.activeKeypointIndex);
       this.timeline.updateTimeline(this.activeKeypointIndex);
       this.syncAllViews();
-      showToast({ message: `已删除关键点 #${index + 1}`, type: 'info' });
+      showToast({ message: `已删除 #${from + 1}–#${to + 1}，共 ${to - from + 1} 个动作点`, type: 'info' });
     } catch (err: any) {
-      showToast({ title: '删除失败', message: err.message || '删除该点后下游关键点无有效解', type: 'danger' });
+      showToast({ title: '删除失败', message: err.message || '删除后下游关键点无有效解', type: 'danger' });
+    }
+  }
+
+  private copySelectedKeypoints(event: ClipboardEvent): void {
+    const range = this.timeline.selectedRange;
+    if (!range || !event.clipboardData) return;
+    event.preventDefault();
+    try {
+      const points = this.controller.copyHistoryRange(range.from, range.to);
+      const text = JSON.stringify(this.controller.export(false, range.from, range.to));
+      event.clipboardData.setData('text/plain', text);
+      // Keep editor-only formula metadata when pasting back into this page.
+      this.keypointClipboard = { text, points };
+      showToast({ message: `已复制 ${points.length} 个动作点；点击粘贴位置后按 Ctrl+V`, type: 'info' });
+    } catch (error: any) {
+      showToast({ title: '复制失败', message: error.message || String(error), type: 'danger' });
+    }
+  }
+
+  private pasteKeypoints(event: ClipboardEvent): void {
+    const text = event.clipboardData?.getData('text/plain');
+    if (!text) return;
+    let payload: any;
+    try { payload = JSON.parse(text); } catch { return; }
+    if (payload?.format !== 'performance-action-sequence-v2') return;
+    event.preventDefault();
+    if (!this.canEditSequence()) return;
+    try {
+      const points = text === this.keypointClipboard?.text ? this.keypointClipboard.points
+        : importSequence(payload, this.controller.ik).history;
+      const selected = this.timeline.selectedRange;
+      const after = selected?.to ?? (this.activeKeypointIndex >= 0
+        ? this.activeKeypointIndex : this.controller.history.length - 1);
+      this.stopPlayback();
+      const range = this.controller.pasteHistory(points, after);
+      this.activeKeypointIndex = range.to;
+      this.timeline.updateTimeline(range.to);
+      this.timeline.selectRange(range.from, range.to);
+      this.syncAllViews();
+      showToast({ message: `已粘贴 ${points.length} 个动作点（#${range.from + 1}–#${range.to + 1}）`, type: 'success' });
+    } catch (error: any) {
+      showToast({ title: '粘贴失败', message: error.message || '动作序列无效或目标不可达', type: 'danger' });
     }
   }
   // Demo Sequence Loader
@@ -1138,16 +1190,32 @@ export class App {
   // Keyboard Shortcuts
   // =========================================================
   private bindKeyboardShortcuts(): void {
+    const textInput = (target: EventTarget | null): HTMLElement | null =>
+      (target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])') ?? null;
+    const timelineShortcut = (target: EventTarget | null): boolean =>
+      !textInput(target) && !document.querySelector('.modal-backdrop');
+    window.addEventListener('copy', (event: ClipboardEvent) => {
+      if (timelineShortcut(event.target)) this.copySelectedKeypoints(event);
+    });
+    window.addEventListener('paste', (event: ClipboardEvent) => {
+      if (timelineShortcut(event.target)) this.pasteKeypoints(event);
+    });
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       // If typing in input or textarea, skip global shortcuts
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
+      if (textInput(e.target)) {
         if (e.key === 'Escape') {
           (e.target as HTMLElement).blur();
         }
         return;
       }
 
-      if (e.key === ' ' || e.code === 'Space') {
+      if (e.key === 'Delete' && timelineShortcut(e.target)) {
+        const range = this.timeline.selectedRange;
+        if (range) {
+          e.preventDefault();
+          this.deleteKeypoints(range.from, range.to);
+        }
+      } else if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         this.togglePlayPause();
       } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -1172,6 +1240,7 @@ export class App {
       } else if (e.key === '4') {
         this.renderer.setCameraPreset('side', true);
       } else if (e.key === 'Escape') {
+        this.timeline.clearSelection();
         this.trajectoryDialog.close();
         this.historyDialog.close();
         this.ioDialog.close();

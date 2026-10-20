@@ -248,19 +248,45 @@ export class RoboArmController {
   }
 
   deleteHistory(index: number): void {
-    if (!this.history[index]) throw new Error('历史点索引不存在');
-    const backup = structuredClone(this.history);
-    try {
-      this.history.splice(index, 1);
-      if (this.history.length > 0) {
-        recomputeHistory(this.ik, this.history, this.base, Math.min(index, this.history.length - 1));
-      }
-      this.current = cloneState(this.history.at(-1)?.target ?? this.base);
-      this.changed();
-    } catch (error) {
-      this.history = backup;
-      throw error;
+    this.deleteHistoryRange(index, index);
+  }
+
+  private validateHistoryRange(from: number, to: number): void {
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to >= this.history.length) {
+      throw new Error('关键点范围无效');
     }
+  }
+
+  copyHistoryRange(from: number, to: number): HistoryPoint[] {
+    this.validateHistoryRange(from, to);
+    return structuredClone(this.history.slice(from, to + 1));
+  }
+
+  deleteHistoryRange(from: number, to: number): void {
+    this.validateHistoryRange(from, to);
+    const next = structuredClone(this.history);
+    next.splice(from, to - from + 1);
+    if (from < next.length) recomputeHistory(this.ik, next, this.base, from);
+    this.history = next;
+    this.current = cloneState(next.at(-1)?.target ?? this.base);
+    this.changed();
+  }
+
+  pasteHistory(points: readonly HistoryPoint[], afterIndex: number): { from: number; to: number } {
+    if (!Number.isInteger(afterIndex) || afterIndex < -1 || afterIndex >= this.history.length || !points.length) {
+      throw new Error('粘贴位置或复制内容无效');
+    }
+    const copied = structuredClone(points) as HistoryPoint[];
+    copied.forEach(point => { point.durationMs = validDuration(point.durationMs); });
+    const next = structuredClone(this.history);
+    const from = afterIndex + 1, to = afterIndex + copied.length;
+    next.splice(from, 0, ...copied);
+    // Solve the inserted block and all subsequent Cartesian targets before committing.
+    recomputeHistory(this.ik, next, this.base, from);
+    this.history = next;
+    this.current = cloneState(next[to].target);
+    this.changed();
+    return { from, to };
   }
 
   undo(): void { if (this.history.length) this.history.pop(); this.current = cloneState(this.history.at(-1)?.target ?? this.base); this.changed(); }

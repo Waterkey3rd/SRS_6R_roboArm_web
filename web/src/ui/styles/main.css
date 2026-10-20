@@ -386,7 +386,7 @@ body {
 
 /* Timeline Dock (Bottom) */
 .timeline-dock {
-  height: 155px;
+  height: 185px;
   background-color: var(--bg-surface);
   border-top: 1px solid var(--border-color);
   display: flex;
@@ -1056,6 +1056,19 @@ body {
   background-color: var(--bg-app);
 }
 
+.timeline-selection-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 2px 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color-subtle);
+}
+
+#timeline-selection-status { color: var(--left-arm-primary); font-weight: 700; }
+
 .keypoint-card {
   flex-shrink: 0;
   width: 165px;
@@ -1070,6 +1083,7 @@ body {
   transition: all 0.15s ease;
   box-shadow: var(--shadow-sm);
   position: relative;
+  user-select: none;
 }
 
 .keypoint-card:hover {
@@ -1081,6 +1095,12 @@ body {
   border-color: var(--left-arm-primary);
   background-color: var(--left-arm-light);
   box-shadow: 0 0 0 2px var(--left-arm-primary);
+}
+
+.keypoint-card.selected {
+  border-color: var(--left-arm-primary);
+  background-color: var(--left-arm-light);
+  outline: 1px solid var(--left-arm-primary);
 }
 
 .keypoint-card-top {
