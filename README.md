@@ -1,5 +1,7 @@
 # Engineer2026 单臂 6R Web / ROS2 上位机
 
+独立仓库：[Waterkey3rd/SRS_6R_roboArm_web](https://github.com/Waterkey3rd/SRS_6R_roboArm_web)。本地 `origin` 的 fetch/push 地址统一为 `https://github.com/Waterkey3rd/SRS_6R_roboArm_web.git`。
+
 目录已由原 7R 名称迁移为 `SRS_6R_roboArm_web`，当前模型、协议、界面和默认启动链路均适配本仓库的单臂 6 轴项目。关节顺序是 MCU J0..J5，ROS 默认名为 `joint_1`..`joint_6`。协议及动作 JSON 中的历史字段 `right` 表示当前唯一机械臂，mask 仅允许 1。
 
 ## 运行 Web
