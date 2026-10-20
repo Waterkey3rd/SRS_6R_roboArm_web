@@ -153,7 +153,7 @@ export class TimelineDock {
       const card = document.createElement('div');
       card.className = `keypoint-card ${idx === activePointIndex ? 'active' : ''}`;
 
-      const isCartesian = point.frameTargets.left.space === 'CartesianSpace' || point.frameTargets.right.space === 'CartesianSpace';
+      const isCartesian = point.frameTargets.right.space === 'CartesianSpace';
       const spaceLabel = isCartesian ? '笛卡尔' : '关节角';
       const spaceClass = isCartesian ? 'cartesian' : 'joint';
 
@@ -164,7 +164,7 @@ export class TimelineDock {
         </div>
         <div class="keypoint-label" title="${escapeHtml(point.label)}">${escapeHtml(point.label)}</div>
         <div class="keypoint-card-bottom">
-          <span style="display: flex; align-items: center; gap: 4px;" title="请求时长 / 实机规划后时长"><span class="btn-icon-slot">${ICONS.CLOCK}</span><span>${point.durationMs}ms${plannedDurations[idx] > point.durationMs + 1 ? ` → ${Math.round(plannedDurations[idx])}ms` : ''}</span></span>
+          <span style="display: flex; align-items: center; gap: 4px;" title="请求时长 / 预览规划时长"><span class="btn-icon-slot">${ICONS.CLOCK}</span><span>${point.durationMs}ms${plannedDurations[idx] > point.durationMs + 1 ? ` → ${Math.round(plannedDurations[idx])}ms` : ''}</span></span>
           <div style="display: flex; gap: 4px;">
             <button class="btn btn-ghost btn-sm" style="padding: 2px 4px; font-size: 11px;" id="kp-edit-${idx}" title="编辑关键点 (F2)">${ICONS.EDIT}</button>
             <button class="btn btn-ghost btn-sm" style="padding: 2px 4px; font-size: 11px; color: var(--status-danger);" id="kp-del-${idx}" title="删除关键点">${ICONS.TRASH}</button>

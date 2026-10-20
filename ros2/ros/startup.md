@@ -1,14 +1,3 @@
-```bash
-ros2 run eng26_usb_bridge usb_bridge_node     --ros-args     -p serial_port:=/dev/ttyUSB0     -p baud_rate:=921600
-ros2 launch realsense2_camera rs_launch.py     camera_name:=camera     pointcloud.enable:=true     pointcloud.texture_stream:=color     align_depth.enable:=true     initial_reset:=true
-```
-```bash
-ros2 launch dataset_recorder recorder.launch.py output_dir:=/home/rm/comm_ws/datasets
-```
-```bash
-ros2 service call /dataset_recorder/start std_srvs/srv/Trigger '{}'
+# 启动
 
-ros2 service call /dataset_recorder/status std_srvs/srv/Trigger '{}'
-
-ros2 service call /dataset_recorder/stop std_srvs/srv/Trigger '{}'
-```
+在此目录完成 colcon build 并 source install/setup.bash 后，执行 `SERIAL_PORT=/dev/ttyUSB0 BAUD=921600 bash start_web_stack.sh`。Web 默认 profile 为 web_bridge；关节为 joint_1..joint_6。细节见 README.md 与 ../../README.md。

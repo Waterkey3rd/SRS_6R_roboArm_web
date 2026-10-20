@@ -3,6 +3,7 @@ import { LatexFormula } from './formula';
 import { cartesianTarget, exportSequence, importSequence, jointTarget, recomputeHistory, solveTarget } from './sequence';
 import { cloneState, SIDES, type ActionSequence, type ArmState, type FrameTarget, type HistoryPoint, type Side, type Space, zeroState } from './types';
 import { DeployIK, resolveWasmBase } from './wasm';
+import type { ControllerDataType } from './serial/controller-protocol';
 
 export interface CommandOptions { label?: string; durationMs?: number; timeoutMs?: number }
 export interface FunctionTrajectoryOptions extends CommandOptions {
@@ -71,7 +72,7 @@ export class RoboArmController {
   }
 
   commandJoints(valuesDeg: Record<Side, number[]>, options: CommandOptions = {}): HistoryPoint {
-    return this.append({ left: jointTarget(valuesDeg.left.map(v => v * DEG)), right: jointTarget(valuesDeg.right.map(v => v * DEG)) }, { label: '关节目标', ...options });
+    return this.append({ right: jointTarget(valuesDeg.right.map(v => v * DEG)) } as Record<Side, FrameTarget>, { label: '关节目标', ...options });
   }
 
   commandCartesian(values: Record<Side, number[]>, options: CommandOptions = {}): HistoryPoint {
@@ -106,8 +107,52 @@ export class RoboArmController {
     return result;
   }
 
+  /** USB uses rad and m/rad; simulation kinematics use rad and mm/rad. */
+  simulationFeedback(type: ControllerDataType, state = this.current): number[] {
+    if (type === 'joints') return [...state.right];
+    const fk = this.ik.fk('right', state.right);
+    return [...fk.position.map(value => value / 1000), ...matrixToYpr(fk.rotation)];
+  }
+
+  /** Apply a live target without recording each USB packet as a history point. */
+  applySimulationTarget(type: ControllerDataType, values: number[]): void {
+    const target = type === 'joints' ? jointTarget(values)
+      : cartesianTarget(values.map((value, index) => index < 3 ? value * 1000 : value));
+    const q = solveTarget(this.ik, 'right', target, this.current.right);
+    this.current = { ...this.current, right: q };
+    this.changed();
+  }
+
+  /** Save an observed take without moving the live arm or replacing existing history. */
+  appendRecording(samples: readonly ArmState[], intervalMs: number, label: string): number {
+    if (samples.length < 2) return 0;
+    if (!Number.isInteger(intervalMs) || intervalMs < 50 || intervalMs > 2000) {
+      throw new Error('采样间隔必须为 50–2000 ms 的整数');
+    }
+    const states = samples.map(state => {
+      const frame = jointTarget(state.right);
+      return { ...cloneState(state), right: solveTarget(this.ik, 'right', frame, state.right) };
+    });
+    const hadHistory = this.history.length > 0;
+    let start = cloneState(hadHistory ? this.history.at(-1)!.target : states[0]);
+    const points: HistoryPoint[] = [];
+    for (let i = hadHistory ? 0 : 1; i < states.length; i++) {
+      const target = states[i];
+      points.push({
+        label: `${label} · ${i * intervalMs} ms`, start: cloneState(start), target: cloneState(target),
+        frameTargets: { right: jointTarget(target.right) } as Record<Side, FrameTarget>,
+        durationMs: intervalMs, timeoutMs: 0,
+      });
+      start = target;
+    }
+    if (!hadHistory) this.base = cloneState(states[0]);
+    this.history.push(...points);
+    // History-only update: notifying pose listeners would interrupt a live animation.
+    return points.length;
+  }
+
   async addFunctionTrajectory(options: FunctionTrajectoryOptions): Promise<HistoryPoint[]> {
-    const componentCount = options.space === 'JointAngleSpace' ? 7 : 6;
+    const componentCount = options.space === 'JointAngleSpace' ? 6 : 6;
     if (!Number.isInteger(options.keypointCount) || options.keypointCount < 1) throw new Error('关键点数量必须是正整数');
     if (!(options.tEnd > options.tStart)) throw new Error('tEnd 必须大于 tStart');
     const compiled = {} as Record<Side, LatexFormula[]>;
@@ -166,9 +211,8 @@ export class RoboArmController {
         : (options.label ?? `函数轨迹 ${group} · ${pointIndex}/${options.keypointCount} · t=${item.t.toPrecision(6)}`),
       start: cloneState(item.start), target: cloneState(item.target),
       frameTargets: {
-        left: options.space === 'JointAngleSpace' ? jointTarget(item.values.left) : cartesianTarget(item.values.left),
         right: options.space === 'JointAngleSpace' ? jointTarget(item.values.right) : cartesianTarget(item.values.right),
-      },
+      } as Record<Side, FrameTarget>,
       durationMs: item.durationMs, timeoutMs: Math.max(0, Math.round(options.timeoutMs ?? 0)),
       function: { group, pointIndex, pointCount: options.keypointCount, t: item.t, tStart: options.tStart, tEnd: options.tEnd, space: options.space, sources: structuredClone(options.sources) },
     }; });
@@ -236,7 +280,7 @@ export class RoboArmController {
     }
     return {
       start: cloneState(start), target: cloneState(target),
-      durationMs: Math.max(sideDurationMs.left, sideDurationMs.right),
+      durationMs: sideDurationMs.right,
       requestedDurationMs, sideDurationMs, historyIndex,
     };
   }

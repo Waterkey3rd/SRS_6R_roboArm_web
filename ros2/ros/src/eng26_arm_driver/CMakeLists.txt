@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(ament_cmake REQUIRED)
 set(ROS_DEPENDENCIES rclcpp rclcpp_action rclcpp_components rcl_interfaces
-  sensor_msgs diagnostic_msgs eng26_arm_interfaces trajectory_msgs builtin_interfaces)
+  sensor_msgs std_msgs diagnostic_msgs eng26_arm_interfaces trajectory_msgs builtin_interfaces)
 foreach(dep IN LISTS ROS_DEPENDENCIES)
   find_package(${dep} REQUIRED)
 endforeach()

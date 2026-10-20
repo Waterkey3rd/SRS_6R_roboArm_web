@@ -13,6 +13,7 @@
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <std_msgs/msg/u_int8_multi_array.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
@@ -46,8 +47,8 @@ uint64_t session_seed() {
 template<class Values> bool finite(const Values& values) {
   return std::all_of(values.begin(), values.end(), [](auto value) { return std::isfinite(value); });
 }
-bool valid_mask(uint8_t mask) { return mask >= 1 && mask <= 3; }
-struct Point { uint32_t time_us{}; std::array<float, 7> right{}, left{}; };
+bool valid_mask(uint8_t mask) { return mask == 1; }
+struct Point { uint32_t time_us{}; std::array<float, wire::kJoints> right{}; };
 }
 
 class ArmDriverNode::Impl {
@@ -113,6 +114,7 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_pub_;
   rclcpp::Publisher<msg::JointTelemetry>::SharedPtr telemetry_pub_;
+  rclcpp::Publisher<std_msgs::msg::UInt8MultiArray>::SharedPtr gripper_pub_;
   rclcpp::Publisher<msg::DriverState>::SharedPtr state_pub_;
   rclcpp::Publisher<msg::RobotEvent>::SharedPtr event_pub_;
   rclcpp::Publisher<msg::CommandResult>::SharedPtr result_pub_;
@@ -132,12 +134,11 @@ ArmDriverNode::Impl::Impl(ArmDriverNode& node) : node_(node) {
   if (bauds.count(baud) == 0) throw std::invalid_argument("unsupported baud_rate");
   frame_id_ = parameter<std::string>("frame_id", "base_link", "Telemetry frame label, no TF is invented");
   std::vector<std::string> defaults;
-  for (const auto* side : {"right", "left"})
-    for (int i = 1; i <= 7; ++i) defaults.push_back(std::string(side) + "_joint_" + std::to_string(i));
-  names_ = parameter<std::vector<std::string>>("joint_names", defaults, "Exactly right[7], then left[7], matching URDF");
-  if (names_.size() != 14 || std::set<std::string>(names_.begin(), names_.end()).size() != 14 ||
+  for (std::size_t i = 1; i <= wire::kJoints; ++i) defaults.push_back("joint_" + std::to_string(i));
+  names_ = parameter<std::vector<std::string>>("joint_names", defaults, "Exactly six joints in J0..J5 order, matching URDF");
+  if (names_.size() != wire::kJoints || std::set<std::string>(names_.begin(), names_.end()).size() != wire::kJoints ||
       std::any_of(names_.begin(), names_.end(), [](const auto& name) { return name.empty(); }))
-    throw std::invalid_argument("joint_names must contain 14 unique nonempty names");
+    throw std::invalid_argument("joint_names must contain six unique nonempty names");
   SessionConfig config;
   config.heartbeat_period_ms = milliseconds("heartbeat_period_ms", 50, 10, 99);
   config.heartbeat_timeout_ms = milliseconds("heartbeat_timeout_ms", 300, 100, 1000);
@@ -167,6 +168,7 @@ ArmDriverNode::Impl::Impl(ArmDriverNode& node) : node_(node) {
   joint_pub_ = node_.create_publisher<sensor_msgs::msg::JointState>("joint_states", rclcpp::SensorDataQoS());
   telemetry_pub_ = node_.create_publisher<msg::JointTelemetry>("~/joint_telemetry", rclcpp::SensorDataQoS());
   state_pub_ = node_.create_publisher<msg::DriverState>("~/state", state_qos);
+  gripper_pub_ = node_.create_publisher<std_msgs::msg::UInt8MultiArray>("/gripper_state", rclcpp::QoS(10).reliable());
   event_pub_ = node_.create_publisher<msg::RobotEvent>("~/events", rclcpp::QoS(64).reliable());
   result_pub_ = node_.create_publisher<msg::CommandResult>("~/command_results", rclcpp::QoS(64).reliable());
   diagnostics_pub_ = node_.create_publisher<diagnostic_msgs::msg::DiagnosticArray>("diagnostics", rclcpp::QoS(10));
@@ -238,12 +240,12 @@ void ArmDriverNode::Impl::reject(const msg::CommandContext& context, Command com
 void ArmDriverNode::Impl::joint_command(const msg::JointCommand& message, Command command) {
   const auto now = steady_ms();
   auto error = context_error(message.context, command, now);
-  if (!valid_mask(message.arm_mask) || message.duration_ms == 0 || !finite(message.right) || !finite(message.left))
+  if (!valid_mask(message.arm_mask) || message.duration_ms == 0 || !finite(message.right))
     error = "invalid arm mask, duration or joint values";
   if (!error.empty()) { reject(message.context, command, error); return; }
   wire::Writer body;
   body.u8(message.arm_mask); body.u8(0); body.u16(message.duration_ms);
-  body.floats(message.right); body.floats(message.left);
+  body.floats(message.right);
   session_->submit(command, std::move(body.bytes), message.context.session_id, message.context.mode_epoch,
     message.context.client_id, now, command_ttl(message.context).value_or(0), true);
   drain_results();
@@ -251,12 +253,12 @@ void ArmDriverNode::Impl::joint_command(const msg::JointCommand& message, Comman
 void ArmDriverNode::Impl::cartesian_command(const msg::CartesianJog& message) {
   const auto now = steady_ms();
   auto error = context_error(message.context, Command::CartesianJog, now);
-  if (!valid_mask(message.arm_mask) || message.reference_frame > 1 || message.duration_ms == 0 ||
-      !finite(message.right) || !finite(message.left)) error = "invalid Cartesian jog fields";
+  if (!valid_mask(message.arm_mask) || message.reference_frame != 0 || message.duration_ms == 0 ||
+      !finite(message.right)) error = "invalid Cartesian jog fields";
   if (!error.empty()) { reject(message.context, Command::CartesianJog, error); return; }
   wire::Writer body;
   body.u8(message.arm_mask); body.u8(message.reference_frame); body.u16(message.duration_ms);
-  body.floats(message.right); body.floats(message.left);
+  body.floats(message.right);
   session_->submit(Command::CartesianJog, std::move(body.bytes), message.context.session_id, message.context.mode_epoch,
     message.context.client_id, now, command_ttl(message.context).value_or(0), true);
   drain_results();
@@ -295,16 +297,14 @@ void ArmDriverNode::Impl::telemetry(const wire::Frame& frame) {
       if (delta == 0 || delta >= 0x80000000U) return; // Repeated snapshot is not new feedback.
     }
     reader.floats(raw.right_position); reader.floats(raw.right_velocity);
-    reader.floats(raw.left_position); reader.floats(raw.left_velocity);
     sensor_msgs::msg::JointState joints;
     joints.header = raw.header; joints.name = names_;
     joints.position.insert(joints.position.end(), raw.right_position.begin(), raw.right_position.end());
-    joints.position.insert(joints.position.end(), raw.left_position.begin(), raw.left_position.end());
     joints.velocity.insert(joints.velocity.end(), raw.right_velocity.begin(), raw.right_velocity.end());
-    joints.velocity.insert(joints.velocity.end(), raw.left_velocity.begin(), raw.left_velocity.end());
     joint_seen_ = true; joint_session_ = state.session_id; last_joint_rx_ = now;
     last_joint_timestamp_ = raw.mcu_timestamp_ms;
-    joint_pub_->publish(joints); telemetry_pub_->publish(raw);
+    std_msgs::msg::UInt8MultiArray gripper; gripper.data = {reader.u8()};
+    joint_pub_->publish(joints); telemetry_pub_->publish(raw); gripper_pub_->publish(gripper);
   } else if (frame.command == Command::Event) {
     msg::RobotEvent event;
     event.header.stamp = node_.now(); event.header.frame_id = frame_id_;
@@ -352,7 +352,6 @@ void ArmDriverNode::Impl::publish_state(uint64_t now) {
     (state.mode == wire::Mode::PcDebug || state.mode == wire::Mode::Vla || state.mode == wire::Mode::RosTrajectory);
   message.safety_flags = state.safety_flags; message.fault_code = state.fault_code;
   message.mcu_uptime_ms = state.mcu_uptime_ms;
-  message.left_gripper_state = state.left_gripper_state;
   message.right_gripper_state = state.right_gripper_state;
   message.heartbeat_age_ms = state.heartbeat_age_ms;
   message.mode_age_ms = state.mode_age_ms;
@@ -383,7 +382,6 @@ void ArmDriverNode::Impl::publish_diagnostics(uint64_t now) {
   add("host.framing_errors", state.framing_errors); add("host.payload_errors", state.payload_errors);
   add("host.opens", state.reconnects); add("host.ack_timeouts", state.ack_timeouts);
   add("host.unmatched_acks", state.unmatched_acks); add("host.heartbeat_age_ms", state.heartbeat_age_ms);
-  add("host.left_gripper_state", state.left_gripper_state);
   add("host.right_gripper_state", state.right_gripper_state);
   add("host.mode_age_ms", state.mode_age_ms); add("host.session_id", state.session_id);
   const std::array<const char*, 7> labels{"valid_frames", "framing_errors", "rejected_commands", "rx_drops", "queue_full", "tx_errors", "transport_errors"};
@@ -398,7 +396,7 @@ void ArmDriverNode::Impl::publish_diagnostics(uint64_t now) {
 std::string ArmDriverNode::Impl::validate_trajectory(const Upload::Goal& goal, std::vector<Point>& points) const {
   const auto& trajectory = goal.trajectory;
   if (!valid_mask(goal.arm_mask) || trajectory.points.empty() || trajectory.points.size() > 256)
-    return "arm_mask must be 1..3 and trajectory must contain 1..256 points";
+    return "arm_mask must be 1 and trajectory must contain 1..256 points";
   if (trajectory.header.stamp.sec != 0 || trajectory.header.stamp.nanosec != 0)
     return "trajectory.header.stamp must be zero; explicit Start controls execution";
   std::vector<std::size_t> mapping;
@@ -408,12 +406,7 @@ std::string ArmDriverNode::Impl::validate_trajectory(const Upload::Goal& goal, s
     if (found == names_.end() || !supplied.insert(name).second) return "unknown or duplicate trajectory joint name";
     mapping.push_back(static_cast<std::size_t>(found - names_.begin()));
   }
-  for (std::size_t i = 0; i < 14; ++i) {
-    const bool selected = i < 7 ? (goal.arm_mask & 1) != 0 : (goal.arm_mask & 2) != 0;
-    if (selected && supplied.count(names_[i]) == 0) return "all seven joints of each selected arm are required";
-  }
-  const auto selected_count = goal.arm_mask == 3 ? 14U : 7U;
-  if (mapping.size() != selected_count && mapping.size() != 14) return "provide exactly selected-arm names or all fourteen names";
+  if (mapping.size() != wire::kJoints) return "provide exactly six joint names";
   points.clear(); points.reserve(trajectory.points.size());
   for (const auto& input : trajectory.points) {
     if (input.positions.size() != mapping.size() || !input.velocities.empty() || !input.accelerations.empty() || !input.effort.empty())
@@ -428,8 +421,7 @@ std::string ArmDriverNode::Impl::validate_trajectory(const Upload::Goal& goal, s
     for (std::size_t i = 0; i < mapping.size(); ++i) {
       if (std::abs(input.positions[i]) > std::numeric_limits<float>::max()) return "position exceeds binary32 range";
       const auto index = mapping[i];
-      if (index < 7) point.right[index] = static_cast<float>(input.positions[i]);
-      else point.left[index - 7] = static_cast<float>(input.positions[i]);
+      point.right[index] = static_cast<float>(input.positions[i]);
     }
     points.push_back(point);
   }
@@ -474,7 +466,7 @@ void ArmDriverNode::Impl::drive_upload(uint64_t now) {
     chunk_count_ = static_cast<uint16_t>(std::min<std::size_t>(4, points_.size() - uploaded_));
     body.u8(static_cast<uint8_t>(chunk_count_));
     for (uint16_t i = 0; i < chunk_count_; ++i) {
-      const auto& point = points_[uploaded_ + i]; body.u32(point.time_us); body.floats(point.right); body.floats(point.left);
+      const auto& point = points_[uploaded_ + i]; body.u32(point.time_us); body.floats(point.right);
     }
   } else command = Command::Commit;
   const auto result = session_->submit(command, std::move(body.bytes), upload_session_, upload_epoch_,

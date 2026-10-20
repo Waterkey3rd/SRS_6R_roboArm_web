@@ -1,5 +1,5 @@
 import type { ArmState } from '../types';
-import { ARM_MASK_BOTH, OUTCOME_ACK, OUTCOME_SUPERSEDED, type CommandResultJson } from '../ros/types';
+import { ARM_MASK_SINGLE, OUTCOME_ACK, OUTCOME_SUPERSEDED, type CommandResultJson } from '../ros/types';
 import { ArmWebClient, commandResultText } from '../ros/arm-web-client';
 import type { HardwareFrame } from './hardware-plan';
 
@@ -81,7 +81,7 @@ export class HardwareExecutor {
     if (reason) throw new Error(`实机未就绪：${reason}`);
 
     const durationMs = clampDuration(requestedDurationMs);
-    const clientId = this.client.publishServo(target, ARM_MASK_BOTH, durationMs);
+    const clientId = this.client.publishServo(target, ARM_MASK_SINGLE, durationMs);
     const result = await this.raceWithAbort(
       this.client.waitForCommandResult(clientId, Math.max(1500, durationMs + 800)),
     );

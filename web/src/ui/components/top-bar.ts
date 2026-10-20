@@ -1,4 +1,6 @@
 import type { OperationMode } from '../../ros/types';
+import type { ControllerDataType, ControllerMode } from '../../serial/controller-protocol';
+import type { ControllerConnection } from '../../serial/homologous-controller';
 import { ICONS } from '../icons';
 
 export type RosStatusKind = 'offline' | 'connecting' | 'connected' | 'ready' | 'error';
@@ -14,6 +16,10 @@ export interface TopBarCallbacks {
   onToggleRosConnect: () => void;
   onEditRosUrl: () => void;
   onEmergencyStop: () => void;
+  onToggleControllerConnect: () => void;
+  onToggleControllerMode: () => void;
+  onIdentifyControllerType: () => void;
+  onToggleRecording: (intervalMs: number) => void;
 }
 
 export class TopBar {
@@ -33,8 +39,8 @@ export class TopBar {
     this.element.innerHTML = `
       <div class="top-bar-left">
         <div class="brand-badge">
-          <div class="brand-icon">7R</div>
-          <span>SRS 7R 双臂机器人控制台</span>
+          <div class="brand-icon">6R</div>
+          <span>Engineer2026 6R 机械臂机器人控制台</span>
         </div>
 
         <div class="mode-switch" id="mode-switch" role="group" aria-label="运行模式">
@@ -86,6 +92,29 @@ export class TopBar {
           <span>${ICONS.HELP}</span>
         </button>
       </div>
+      <div class="controller-link" role="group" aria-label="同构控制器 USB">
+        <span class="controller-label">同构控制器</span>
+        <span id="controller-status" role="status">USB 未连接</span>
+        <button class="btn btn-secondary btn-sm" id="btn-controller-connect">选择 USB 串口</button>
+          <button class="btn btn-secondary btn-sm" id="btn-controller-mode" aria-pressed="false" disabled>跟随 · 点击从动仿真</button>
+        <button class="btn btn-secondary btn-sm" id="btn-controller-identify" title="从控制器下一份有效数据识别类型，仅监听，不发送类型切换命令" disabled>识别数据类型</button>
+        <span id="controller-data-type" role="status">数据：待识别</span>
+        <span class="controller-hint" id="controller-direction">等待控制器声明数据类型</span>
+      </div>
+      <div class="controller-link" role="group" aria-label="固定间隔录包">
+        <span class="controller-label">离散点录包</span>
+        <label for="recording-interval">采样间隔</label>
+        <select class="form-select" id="recording-interval" style="width: auto; padding: 3px 8px;">
+          <option value="50">50 ms</option>
+          <option value="100" selected>100 ms</option>
+          <option value="200">200 ms</option>
+          <option value="500">500 ms</option>
+          <option value="1000">1000 ms</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" id="btn-recording" aria-pressed="false">开始录包</button>
+        <span id="recording-status" role="status">仿真姿态 · 未录制</span>
+        <span class="controller-hint">停止后追加到时间轴，可在动作序列 IO 导出</span>
+      </div>
     `;
 
     this.themeBtn = this.element.querySelector('#btn-top-theme') as HTMLButtonElement;
@@ -105,6 +134,13 @@ export class TopBar {
     this.rosConnectBtn.addEventListener('click', () => this.callbacks.onToggleRosConnect());
     this.element.querySelector('#btn-ros-config')?.addEventListener('click', () => this.callbacks.onEditRosUrl());
     this.emergencyBtn.addEventListener('click', () => this.callbacks.onEmergencyStop());
+    this.element.querySelector('#btn-controller-connect')?.addEventListener('click', () => this.callbacks.onToggleControllerConnect());
+    this.element.querySelector('#btn-controller-mode')?.addEventListener('click', () => this.callbacks.onToggleControllerMode());
+    this.element.querySelector('#btn-controller-identify')?.addEventListener('click', () => this.callbacks.onIdentifyControllerType());
+    this.element.querySelector('#btn-recording')?.addEventListener('click', () => {
+      const interval = this.element.querySelector('#recording-interval') as HTMLSelectElement;
+      this.callbacks.onToggleRecording(Number(interval.value));
+    });
 
     this.element.querySelector('#btn-top-demo')?.addEventListener('click', () => this.callbacks.onLoadDemo());
     this.element.querySelector('#btn-top-trajectory')?.addEventListener('click', () => this.callbacks.onOpenTrajectory());
@@ -153,5 +189,51 @@ export class TopBar {
   setHardwareRunning(running: boolean): void {
     this.emergencyBtn.textContent = 'STOP';
     this.emergencyBtn.classList.toggle('is-running', running);
+  }
+
+  setControllerStatus(connection: ControllerConnection, mode: ControllerMode, detail: string, feedbackType: ControllerDataType | null): void {
+    const status = this.element.querySelector('#controller-status') as HTMLElement;
+    const connect = this.element.querySelector('#btn-controller-connect') as HTMLButtonElement;
+    const toggle = this.element.querySelector('#btn-controller-mode') as HTMLButtonElement;
+    status.textContent = detail;
+    connect.disabled = connection === 'connecting' || connection === 'disconnecting';
+    connect.textContent = connection === 'connected' ? '断开 USB' : connection === 'connecting' ? '选择 / 连接中…' : connection === 'disconnecting' ? '断开中…' : '选择 USB 串口';
+    toggle.disabled = connection !== 'connected';
+    const simulation = this.currentMode === 'simulation';
+    toggle.textContent = mode === 'active' ? simulation ? '从动仿真 · 点击跟随' : '主动 · 点击跟随'
+      : simulation ? '跟随 · 点击从动仿真' : '跟随 · 点击主动';
+    toggle.setAttribute('aria-pressed', String(mode === 'active'));
+    toggle.classList.toggle('btn-primary', mode === 'active');
+    toggle.classList.toggle('btn-secondary', mode !== 'active');
+    this.emergencyBtn.style.display = !simulation || connection === 'connected' ? 'inline-flex' : 'none';
+    this.emergencyBtn.title = simulation ? '停止仿真并恢复 USB 跟随' : '向实机发送 STOP';
+    const direction = this.element.querySelector('#controller-direction') as HTMLElement;
+    const source = simulation ? '虚拟臂' : '实机';
+    direction.textContent = mode === 'active' ? simulation ? '控制器关节角 / 位姿 → 虚拟臂' : '控制器关节角 / 位姿 → ROS → 实机'
+      : feedbackType === 'pose' ? `${source} TCP 位姿（m / rad） → 控制器`
+        : feedbackType === 'joints' ? `${source}关节角（rad） → 控制器` : '等待控制器声明数据类型';
+  }
+
+  setControllerDataType(connection: ControllerConnection, type: ControllerDataType | null, identifying: boolean, timedOut: boolean): void {
+    const button = this.element.querySelector('#btn-controller-identify') as HTMLButtonElement;
+    const status = this.element.querySelector('#controller-data-type') as HTMLElement;
+    button.disabled = connection !== 'connected' || identifying;
+    button.textContent = identifying ? '识别中…' : '识别数据类型';
+    status.textContent = identifying ? '等待下一份有效上传…' : timedOut ? '未收到数据，可重试'
+      : type === 'joints' ? '数据：关节角（rad）' : type === 'pose' ? '数据：位姿（m / rad）' : '数据：待识别';
+  }
+
+  setRecordingStatus(recording: boolean, ready: boolean, source: string, count = 0, durationMs = 0): void {
+    const button = this.element.querySelector('#btn-recording') as HTMLButtonElement;
+    const interval = this.element.querySelector('#recording-interval') as HTMLSelectElement;
+    button.disabled = !recording && !ready;
+    button.textContent = recording ? '停止录包并保存' : '开始录包';
+    button.setAttribute('aria-pressed', String(recording));
+    button.classList.toggle('btn-danger', recording);
+    button.classList.toggle('btn-secondary', !recording);
+    interval.disabled = recording;
+    const status = this.element.querySelector('#recording-status') as HTMLElement;
+    status.textContent = recording ? `${source} · 录制中 ${count} 点 / ${(durationMs / 1000).toFixed(1)} s`
+      : `${source} · ${ready ? '未录制' : '等待新鲜实机反馈'}`;
   }
 }

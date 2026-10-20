@@ -34,7 +34,7 @@ export class ControlPanel {
   // Delta inputs
   private deltaStepMm = 10;
   private deltaStepDeg = 10;
-  private deltaActiveTab: 'left' | 'right' | 'both' = 'left';
+  private deltaActiveTab: 'left' | 'right' | 'both' = 'right';
 
   // Limits in deg
   private limitsDeg: Record<Side, { lower: number[]; upper: number[] }> = {} as any;
@@ -54,8 +54,8 @@ export class ControlPanel {
 
   // 当前显示值缓存（跟随源或用户输入），用于模式切换后恢复，不被仿真初始值冲掉
   private jointValueCache: Record<Side, number[]> = {
-    left: new Array(7).fill(0),
-    right: new Array(7).fill(0),
+    left: new Array(6).fill(0),
+    right: new Array(6).fill(0),
   };
   private cartValueCache: Record<Side, number[]> = {
     left: new Array(6).fill(0),
@@ -255,44 +255,37 @@ export class ControlPanel {
     presetBar.innerHTML = `
       <button class="btn btn-secondary btn-sm" style="flex: 1;" id="btn-preset-zero">零位姿态</button>
       <button class="btn btn-secondary btn-sm" style="flex: 1;" id="btn-preset-ready">准备姿态</button>
-      <button class="btn btn-secondary btn-sm" style="flex: 1;" id="btn-preset-mirror" title="将左臂关节镜像复制到右臂">左向右镜像</button>
+
     `;
     parent.appendChild(presetBar);
 
     presetBar.querySelector('#btn-preset-zero')?.addEventListener('click', () => {
       for (const side of SIDES) {
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 6; i++) {
           this.setJointValue(side, i, 0);
         }
       }
     });
 
     presetBar.querySelector('#btn-preset-ready')?.addEventListener('click', () => {
-      const readyPose = [0, -30, 0, 30, 0, 0, 0];
+      const readyPose = [0, -30, 30, 0, 0, 0];
       for (const side of SIDES) {
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 6; i++) {
           this.setJointValue(side, i, readyPose[i]);
         }
       }
     });
 
-    presetBar.querySelector('#btn-preset-mirror')?.addEventListener('click', () => {
-      for (let i = 0; i < 7; i++) {
-        const val = parseFloat(this.jointInputs.left[i].value) || 0;
-        this.setJointValue('right', i, val);
-      }
-      showToast({ message: '已完成左臂关节角镜像复制', type: 'info' });
-    });
 
     for (const side of SIDES) {
       const card = document.createElement('div');
       card.className = `arm-card ${side}-arm`;
 
-      const sideName = side === 'left' ? '左臂 (Left Arm)' : '右臂 (Right Arm)';
+      const sideName = side === 'left' ? '左臂 (Left Arm)' : '6 轴机械臂';
       card.innerHTML = `
         <div class="arm-card-header">
           <span>${sideName}</span>
-          <span style="font-size: 11px; font-weight: normal; opacity: 0.8;">J1 ~ J7 (deg)</span>
+          <span style="font-size: 11px; font-weight: normal; opacity: 0.8;">J0 ~ J5 (deg)</span>
         </div>
         <div class="arm-card-content" id="joints-host-${side}"></div>
       `;
@@ -300,7 +293,7 @@ export class ControlPanel {
 
       const host = card.querySelector(`#joints-host-${side}`) as HTMLElement;
 
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 6; i++) {
         const row = document.createElement('div');
         row.className = 'joint-row';
 
@@ -312,7 +305,7 @@ export class ControlPanel {
 
         row.innerHTML = `
           <div class="joint-header">
-            <span class="joint-name">J${i + 1}</span>
+            <span class="joint-name">J${i}</span>
             <div style="display: flex; align-items: center; gap: 6px;">
               <span style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">${min.toFixed(0)}° ~ ${max.toFixed(0)}°</span>
               <input type="number" class="joint-val-badge" id="num-${side}-${i}" step="0.5" min="${min.toFixed(1)}" max="${max.toFixed(1)}" value="${currentDeg.toFixed(1)}">
@@ -323,7 +316,7 @@ export class ControlPanel {
               <button class="stepper-btn" data-step="-5">-5°</button>
               <button class="stepper-btn" data-step="-1">-1°</button>
             </div>
-            <input type="range" class="joint-slider" id="slider-${side}-${i}" min="${min}" max="${max}" step="0.1" value="${currentDeg}">
+            <input type="range" class="joint-slider" id="slider-${side}-${i}" min="${max - min > 720 ? Math.max(min, currentDeg - 180) : min}" max="${max - min > 720 ? Math.min(max, currentDeg + 180) : max}" step="0.1" value="${currentDeg}">
             <div class="stepper-group">
               <button class="stepper-btn" data-step="1">+1°</button>
               <button class="stepper-btn" data-step="5">+5°</button>
@@ -381,6 +374,10 @@ export class ControlPanel {
     const clamped = Math.max(min, Math.min(max, deg));
     this.jointValueCache[side][index] = clamped;
     if (this.jointSliders[side][index]) {
+      if (max - min > 720) {
+        this.jointSliders[side][index].min = String(Math.max(min, clamped - 180));
+        this.jointSliders[side][index].max = String(Math.min(max, clamped + 180));
+      }
       this.jointSliders[side][index].value = String(clamped);
       this.jointInputs[side][index].value = clamped.toFixed(1);
       this.updateJointGauge(side, index, clamped);
@@ -414,7 +411,7 @@ export class ControlPanel {
     for (const side of SIDES) {
       const card = document.createElement('div');
       card.className = `arm-card ${side}-arm`;
-      const sideName = side === 'left' ? '左臂末端笛卡尔位姿' : '右臂末端笛卡尔位姿';
+      const sideName = side === 'left' ? '左臂末端笛卡尔位姿' : '机械臂末端笛卡尔位姿';
 
       card.innerHTML = `
         <div class="arm-card-header">
@@ -515,16 +512,16 @@ export class ControlPanel {
     header.className = 'delta-container-header';
     header.innerHTML = `
       <div class="delta-arm-tabs">
-        <button class="delta-tab-btn ${this.deltaActiveTab === 'left' ? 'active left' : ''}" data-arm="left">
+        <button hidden class="delta-tab-btn ${this.deltaActiveTab === 'left' ? 'active left' : ''}" data-arm="left">
           <span class="tab-indicator left"></span>
           <span>左臂微调</span>
         </button>
         <button class="delta-tab-btn ${this.deltaActiveTab === 'right' ? 'active right' : ''}" data-arm="right">
           <span class="tab-indicator right"></span>
-          <span>右臂微调</span>
+          <span>机械臂微调</span>
         </button>
-        <button class="delta-tab-btn ${this.deltaActiveTab === 'both' ? 'active' : ''}" data-arm="both">
-          <span>双臂同时</span>
+        <button hidden class="delta-tab-btn ${this.deltaActiveTab === 'both' ? 'active' : ''}" data-arm="both">
+          <span>机械臂同时</span>
         </button>
       </div>
     `;
@@ -580,7 +577,7 @@ export class ControlPanel {
     for (const side of sidesToShow) {
       const card = document.createElement('div');
       card.className = `arm-card ${side}-arm`;
-      const sideName = side === 'left' ? '左臂末端工具系微调' : '右臂末端工具系微调';
+      const sideName = side === 'left' ? '左臂末端工具系微调' : '机械臂末端工具系微调';
 
       card.innerHTML = `
         <div class="arm-card-header">
@@ -672,7 +669,7 @@ export class ControlPanel {
   syncState(state: ArmState, options: { respectFocus?: boolean } = {}): void {
     if (this.currentMode === 'joint') {
       for (const side of SIDES) {
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 6; i++) {
           const deg = state[side][i] * RAD;
           if (this.jointSliders[side][i]) {
             const sliderFocused = document.activeElement === this.jointSliders[side][i];

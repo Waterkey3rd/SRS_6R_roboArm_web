@@ -1,7 +1,7 @@
 # Upload only; success means Commit ACK(Ok), never execution success.
 CommandContext context
 uint8 arm_mask
-# Exactly 7 selected-arm names or all 14 names; order is arbitrary.
+# Exactly six joint names; order is arbitrary. arm_mask must be RIGHT (1).
 # Position-only, no future header stamp; 1..256 points, strict microsecond times.
 trajectory_msgs/JointTrajectory trajectory
 ---

@@ -1,3 +1,4 @@
+// Only right is active. The left key is a reserved in-memory editor slot, never rendered or serialized.
 export type Side = 'left' | 'right';
 export type ArmState = Record<Side, number[]>;
 export type Space = 'JointAngleSpace' | 'CartesianSpace';
@@ -44,6 +45,6 @@ export interface ActionSequence {
   metadata?: { synchronized?: boolean; frameLabels?: string[] };
 }
 
-export const SIDES: Side[] = ['left', 'right'];
-export const zeroState = (): ArmState => ({ left: Array(7).fill(0), right: Array(7).fill(0) });
-export const cloneState = (state: ArmState): ArmState => ({ left: [...state.left], right: [...state.right] });
+export const SIDES: Side[] = ['right'];
+export const zeroState = (): ArmState => ({ left: Array(6).fill(0), right: Array(6).fill(0) });
+export const cloneState = (state: ArmState): ArmState => ({ left: [...(state.left ?? Array(6).fill(0))], right: [...state.right] });

@@ -1,5 +1,5 @@
 {
-  "name": "srs-7r-roboarm-root",
+  "name": "srs-6r-roboarm-root",
   "private": true,
   "scripts": {
     "dev": "npm --prefix web run dev",

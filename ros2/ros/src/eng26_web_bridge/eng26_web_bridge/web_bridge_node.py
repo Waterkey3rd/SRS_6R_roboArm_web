@@ -5,7 +5,7 @@ Browser-facing contract:
   * /arm_web/driver_state     std_msgs/String JSON
   * /arm_web/command_result   std_msgs/String JSON
   * /arm_web/event            std_msgs/String JSON
-  * /arm_web/servo_target     std_msgs/String JSON -> /arm_driver/servo_target
+  * /arm_web/servo_target     std_msgs/String JSON -> joint servo or Cartesian jog
   * /arm_web/stop             std_srvs/Trigger   -> /arm_driver/stop
   * /arm_web/hold             std_srvs/Trigger   -> /arm_driver/command HOLD
 
@@ -34,6 +34,7 @@ from std_srvs.srv import Trigger
 from eng26_arm_interfaces.msg import CommandResult
 from eng26_arm_interfaces.msg import DriverState
 from eng26_arm_interfaces.msg import JointCommand
+from eng26_arm_interfaces.msg import CartesianJog
 from eng26_arm_interfaces.msg import RobotEvent
 from eng26_arm_interfaces.srv import Command
 from eng26_arm_interfaces.srv import Stop
@@ -50,6 +51,7 @@ MODE_NAMES = {
 }
 
 COMMAND_SERVO = 0x20
+COMMAND_CARTESIAN = 0x22
 COMMAND_HOLD = 48
 OUTCOME_REJECTED = 1
 MCU_RESULT_UNAVAILABLE = 255
@@ -67,6 +69,8 @@ class ArmWebBridge(Node):
             'joint_state_topic', '/joint_states').value
         self._servo_topic = self.declare_parameter(
             'servo_topic', '/arm_driver/servo_target').value
+        self._cartesian_topic = self.declare_parameter(
+            'cartesian_topic', '/arm_driver/cartesian_jog').value
         self._command_result_topic = self.declare_parameter(
             'command_result_topic', '/arm_driver/command_results').value
         self._event_topic = self.declare_parameter(
@@ -108,6 +112,7 @@ class ArmWebBridge(Node):
         self._result_pub = self.create_publisher(String, self._result_out_topic, reliable_depth_64)
         self._event_pub = self.create_publisher(String, self._event_out_topic, reliable_depth_64)
         self._servo_pub = self.create_publisher(JointCommand, self._servo_topic, best_effort_depth_1)
+        self._cartesian_pub = self.create_publisher(CartesianJog, self._cartesian_topic, best_effort_depth_1)
 
         self._stop_client = self.create_client(Stop, self._stop_service)
         self._command_client = self.create_client(Command, self._command_service)
@@ -176,7 +181,6 @@ class ArmWebBridge(Node):
             'heartbeat_age_ms': int(message.heartbeat_age_ms),
             'mode_age_ms': int(message.mode_age_ms),
             'joint_state_age_ms': int(message.joint_state_age_ms),
-            'left_gripper_state': int(message.left_gripper_state),
             'right_gripper_state': int(message.right_gripper_state),
             'trajectory_reserved': bool(message.trajectory_reserved),
             'trajectory_id': int(message.trajectory_id),
@@ -242,9 +246,10 @@ class ArmWebBridge(Node):
             return
 
         error = self._validate_servo(command)
+        request_command = COMMAND_CARTESIAN if isinstance(command, dict) and command.get('space') == 'CartesianSpace' else COMMAND_SERVO
         if error:
             client_id = str(command.get('client_id', '0')) if isinstance(command, dict) else '0'
-            self._publish_rejected(client_id, error)
+            self._publish_rejected(client_id, error, request_command)
             return
         client_id = str(command.get('client_id', '0'))
 
@@ -253,7 +258,7 @@ class ArmWebBridge(Node):
         now_ns = self.get_clock().now().nanoseconds
         rate_limit_ns = int(1e9 / self._servo_publish_limit_hz)
         if now_ns - self._last_servo_publish_ns < rate_limit_ns:
-            self._publish_rejected(client_id, 'servo_target 发送频率超过桥接节点限制')
+            self._publish_rejected(client_id, 'servo_target 发送频率超过桥接节点限制', request_command)
             return
 
         try:
@@ -261,10 +266,11 @@ class ArmWebBridge(Node):
             if client_id_value < 0 or client_id_value > 0xFFFFFFFFFFFFFFFF:
                 raise ValueError('client_id out of uint64 range')
         except (TypeError, ValueError):
-            self._publish_rejected(client_id, 'client_id 不是有效的 uint64')
+            self._publish_rejected(client_id, 'client_id 不是有效的 uint64', request_command)
             return
 
-        target = JointCommand()
+        is_pose = request_command == COMMAND_CARTESIAN
+        target = CartesianJog() if is_pose else JointCommand()
         target.context.stamp = self.get_clock().now().to_msg()
         target.context.session_id = state.session_id
         target.context.mode_epoch = state.mode_epoch
@@ -272,9 +278,12 @@ class ArmWebBridge(Node):
         target.arm_mask = int(command['arm_mask'])
         target.duration_ms = int(command['duration_ms'])
         target.right = [float(value) for value in command['right']]
-        target.left = [float(value) for value in command['left']]
 
-        self._servo_pub.publish(target)
+        if is_pose:
+            target.reference_frame = 0
+            self._cartesian_pub.publish(target)
+        else:
+            self._servo_pub.publish(target)
         self._last_servo_publish_ns = now_ns
         self.get_logger().debug(
             'Forwarded servo_target client_id=%s duration_ms=%d' % (client_id, target.duration_ms))
@@ -283,7 +292,13 @@ class ArmWebBridge(Node):
         if not isinstance(command, dict):
             return 'servo_target JSON 必须是对象'
 
-        required = ('client_id', 'arm_mask', 'duration_ms', 'right', 'left')
+        space = command.get('space', 'JointAngleSpace')
+        if space not in ('JointAngleSpace', 'CartesianSpace'):
+            return 'space 必须是 JointAngleSpace 或 CartesianSpace'
+        if space == 'CartesianSpace' and command.get('reference_frame', 0) != 0:
+            return 'CartesianSpace 只接受基座系绝对位姿 (reference_frame=0)'
+
+        required = ('client_id', 'arm_mask', 'duration_ms', 'right',)
         for key in required:
             if key not in command:
                 return 'servo_target 缺少字段 %s' % key
@@ -294,16 +309,16 @@ class ArmWebBridge(Node):
         except (TypeError, ValueError):
             return 'arm_mask/duration_ms 不是整数'
 
-        if arm_mask < 1 or arm_mask > 3:
-            return 'arm_mask 必须是 1/2/3'
+        if arm_mask != 1:
+            return 'arm_mask 必须是 1'
         if duration_ms < self._command_min_duration_ms or duration_ms > self._command_max_duration_ms:
             return 'duration_ms 超出范围 [%d, %d]' % (
                 self._command_min_duration_ms, self._command_max_duration_ms)
 
-        for key in ('right', 'left'):
+        for key in ('right',):
             values = command[key]
-            if not isinstance(values, list) or len(values) != 7:
-                return '%s 必须包含 7 个关节角' % key
+            if not isinstance(values, list) or len(values) != 6:
+                return '%s 必须包含 6 个关节角或位姿分量' % key
             if not all(isinstance(value, (int, float)) and math.isfinite(float(value)) for value in values):
                 return '%s 包含非有限数值' % key
 
@@ -330,14 +345,14 @@ class ArmWebBridge(Node):
 
         return None
 
-    def _publish_rejected(self, client_id: str, reason: str) -> None:
+    def _publish_rejected(self, client_id: str, reason: str, request_command: int = COMMAND_SERVO) -> None:
         state = self._driver_state
         payload = {
             'stamp_ns': str(self.get_clock().now().nanoseconds),
             'ticket': '0',
             'client_id': str(client_id),
             'session_id': str(state.session_id) if state is not None else '0',
-            'request_command': COMMAND_SERVO,
+            'request_command': request_command,
             'sequence': 0,
             'mode_epoch': int(state.mode_epoch) if state is not None else 0,
             'outcome': OUTCOME_REJECTED,

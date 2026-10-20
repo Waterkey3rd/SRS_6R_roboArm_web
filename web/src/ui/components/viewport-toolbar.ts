@@ -12,7 +12,7 @@ export interface ViewportToolbarCallbacks {
 export class ViewportToolbar {
   readonly element: HTMLElement;
   private currentMode: ViewportToolMode = 'none';
-  private currentArm: Side = 'left';
+  private currentArm: Side = 'right';
   private btnArmLeft: HTMLButtonElement;
   private btnArmRight: HTMLButtonElement;
   private toolButtons: Map<ViewportToolMode, HTMLButtonElement> = new Map();
@@ -28,8 +28,8 @@ export class ViewportToolbar {
     this.element.innerHTML = `
       <!-- Top Arm Selector (L / R) -->
       <div class="vtool-arm-switcher" title="切换当前操作机械臂 (快捷键 Tab)">
-        <button class="vtool-arm-btn active" data-arm="left" title="当前操作: 左臂 (Tab 切换)">L</button>
-        <button class="vtool-arm-btn" data-arm="right" title="当前操作: 右臂 (Tab 切换)">R</button>
+        <button hidden class="vtool-arm-btn" data-arm="left" title="当前操作: 左臂 (Tab 切换)">L</button>
+        <button class="vtool-arm-btn" data-arm="right" title="6 轴机械臂">6R</button>
       </div>
 
       <div class="vtool-divider"></div>
@@ -120,8 +120,9 @@ export class ViewportToolbar {
   }
 
   setArm(side: Side): void {
+    side = 'right';
     this.currentArm = side;
-    this.btnArmLeft.classList.toggle('active', side === 'left');
+    this.btnArmLeft.classList.remove('active');
     this.btnArmRight.classList.toggle('active', side === 'right');
   }
 

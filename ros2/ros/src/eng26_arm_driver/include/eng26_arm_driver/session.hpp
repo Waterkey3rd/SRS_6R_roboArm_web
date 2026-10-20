@@ -29,7 +29,7 @@ struct SessionState {
   bool peer_online{}, control_blocked{true}, snapshot_valid{}, rearm_required{true};
   wire::Mode mode{wire::Mode::Idle};
   uint16_t epoch{}, safety_flags{}, fault_code{};
-  uint8_t left_gripper_state{255}, right_gripper_state{255};
+  uint8_t right_gripper_state{255};
   uint64_t session_id{}, heartbeat_age_ms{}, mode_age_ms{};
   uint64_t framing_errors{}, payload_errors{}, reconnects{}, ack_timeouts{}, unmatched_acks{};
   uint32_t mcu_uptime_ms{};

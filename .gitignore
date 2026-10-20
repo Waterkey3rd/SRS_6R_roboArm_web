@@ -33,4 +33,44 @@ ros2/ros/package.xml
 ros2/ros/udo apt-get install -y ros-humble-diagnostic-updater
 ros2/ros/run_logs/
 ros2/7RArm-WebView/
-ros2_real/
+ros2_real/datasets/
+ros2_real/lerobot_data/
+
+# Keep caches and build output local, including alternate build directories.
+.cache/
+node_modules/
+dist/
+build/
+install/
+log/
+cmake-build-*/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+*.elf
+*.hex
+*.bin
+*.map
+*.d
+*.tsbuildinfo
+*.db3
+*.db3-shm
+*.db3-wal
+*.mcap
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+AGENTS.md
+CLAUDE.md
+
+# web/public/wasm/deploy_ik.{js,wasm} are required runtime assets and stay versioned.

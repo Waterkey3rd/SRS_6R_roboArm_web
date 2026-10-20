@@ -3,8 +3,7 @@
 
 #include <cmath>
 
-// Platform-independent math shared by the firmware TrajectoryPlanner and the
-// browser WASM visualizer. Values are SI: rad, seconds, rad/s and rad/s^2.
+// Offline browser preview math (the MCU uses feedback-dependent log tracking). Values are SI: rad, seconds, rad/s and rad/s^2.
 namespace trajectory_planner_kernel {
 
 inline constexpr float kPeakVelocityFactor = 1.875f;
@@ -12,12 +11,12 @@ inline constexpr float kPeakAccelerationFactor = 5.773502691896258f;  // 10/sqrt
 inline constexpr float kEpsilon = 1.0e-6f;
 
 // Default limits shared verbatim by the firmware planner and browser WASM.
-// These are twice the original deployment limits.
-inline constexpr float kDefaultSpeedMaxRadPerSec[7] = {
-    4.0f, 1.6f, 1.6f, 4.0f, 4.0f, 4.0f, 4.0f,
+// Preview speed caps match the current firmware; acceleration caps are preview-only.
+inline constexpr float kDefaultSpeedMaxRadPerSec[6] = {
+    2.0f, 0.8f, 0.8f, 2.0f, 2.0f, 2.0f,
 };
-inline constexpr float kDefaultAccelerationMaxRadPerSec2[7] = {
-    8.0f, 4.0f, 4.0f, 8.0f, 8.0f, 8.0f, 8.0f,
+inline constexpr float kDefaultAccelerationMaxRadPerSec2[6] = {
+    4.0f, 2.0f, 2.0f, 4.0f, 4.0f, 4.0f,
 };
 
 inline float clampRequestedDuration(float requestedSec, float minDurationSec,

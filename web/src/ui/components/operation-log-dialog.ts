@@ -46,14 +46,13 @@ export class OperationLogDialog {
                 </div>
               </div>
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 9px; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);">
-                ${SIDES.map(side => `<div><b>${side === 'left' ? '左臂' : '右臂'}</b> · ${this.targetText(side, point.frameTargets[side])}</div>`).join('')}
+                ${SIDES.map(side => `<div><b>${side === 'left' ? '左臂' : '机械臂'}</b> · ${this.targetText(side, point.frameTargets[side])}</div>`).join('')}
               </div>
               ${point.function ? `
                 <details style="margin-top: 9px; font-size: 12px; color: var(--text-secondary);">
                   <summary style="cursor: pointer;">函数轨迹 ${point.function.group} · t=${point.function.t.toPrecision(6)} · ${point.function.space}</summary>
                   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 7px; font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere;">
-                    <div><b>左臂公式</b><br>${point.function.sources.left.map(escapeHtml).join('<br>')}</div>
-                    <div><b>右臂公式</b><br>${point.function.sources.right.map(escapeHtml).join('<br>')}</div>
+                    <div><b>机械臂公式</b><br>${point.function.sources.right.map(escapeHtml).join('<br>')}</div>
                   </div>
                 </details>` : ''}
             </article>`).join('') : '<div class="alert-banner info">当前还没有历史操作记录。</div>'}

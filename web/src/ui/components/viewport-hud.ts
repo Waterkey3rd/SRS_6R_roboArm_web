@@ -37,12 +37,12 @@ export class ViewportHud {
             <span class="hud-source-dot"></span>
             <span id="hud-source-text">仿真姿态</span>
           </div>
-          <div class="hud-arm-readout" id="hud-left-arm">
+          <div class="hud-arm-readout" id="hud-left-arm" hidden>
             <span class="hud-chip left">左臂</span>
             <span class="hud-coords" id="hud-left-coords">X: 0.0 Y: 0.0 Z: 0.0 mm | Y: 0° P: 0° R: 0°</span>
           </div>
           <div class="hud-arm-readout" id="hud-right-arm">
-            <span class="hud-chip right">右臂</span>
+            <span class="hud-chip right">机械臂</span>
             <span class="hud-coords" id="hud-right-coords">X: 0.0 Y: 0.0 Z: 0.0 mm | Y: 0° P: 0° R: 0°</span>
           </div>
         </div>
@@ -119,7 +119,7 @@ export class ViewportHud {
   }
 
   update(state: ArmState): void {
-    for (const side of ['left', 'right'] as Side[]) {
+    for (const side of ['right'] as Side[]) {
       const fk = this.ik.fk(side, state[side]);
       const [yaw, pitch, roll] = matrixToYpr(fk.rotation);
       const str = `X: ${fk.position[0].toFixed(1)} Y: ${fk.position[1].toFixed(1)} Z: ${fk.position[2].toFixed(1)} mm | Y: ${(yaw * RAD).toFixed(1)}° P: ${(pitch * RAD).toFixed(1)}° R: ${(roll * RAD).toFixed(1)}°`;

@@ -2,7 +2,7 @@
 <package format="3">
   <name>eng26_arm_driver</name>
   <version>0.1.0</version>
-  <description>Nonblocking ROS 2 serial driver for ENG26 HostComputer v1.</description>
+  <description>Nonblocking ROS 2 serial driver for Engineer2026 single-arm six-axis HostComputer.</description>
   <maintainer email="maintainers@example.com">ENG26 maintainers</maintainer>
   <license>Proprietary</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -11,6 +11,7 @@
   <depend>rclcpp_components</depend>
   <depend>rcl_interfaces</depend>
   <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>diagnostic_msgs</depend>
   <depend>eng26_arm_interfaces</depend>
   <depend>trajectory_msgs</depend>

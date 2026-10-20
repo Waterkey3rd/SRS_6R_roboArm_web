@@ -24,7 +24,7 @@ export class HelpDialog {
         <div class="modal-header">
           <div class="modal-title">
             <span class="btn-icon-slot">${ICONS.HELP}</span>
-            <span>SRS 7R 双机械臂工作台 · 操作使用指南</span>
+            <span>Engineer2026 6 轴机械臂工作台 · 操作使用指南</span>
           </div>
           <button class="modal-close-btn" id="modal-close-btn" title="关闭指南 (Esc)">${ICONS.CLOSE}</button>
         </div>
@@ -70,7 +70,7 @@ export class HelpDialog {
     // Initial checkbox state from localStorage
     const chk = this.backdrop.querySelector('#chk-guide-dont-show') as HTMLInputElement;
     if (chk) {
-      chk.checked = localStorage.getItem('srs_7r_guide_viewed') === 'true';
+      chk.checked = localStorage.getItem('engineer2026_arm6_guide_viewed') === 'true';
     }
 
     // Bind tab switching
@@ -151,10 +151,10 @@ export class HelpDialog {
       <div class="guide-intro-banner">
         <div class="guide-intro-title">
           <span class="btn-icon-slot" style="margin-right: 6px;">${ICONS.BRAND}</span>
-          <span>欢迎使用 SRS 7R 双机械臂可视化与动作序列编排系统</span>
+          <span>欢迎使用 Engineer2026 6 轴机械臂可视化与动作序列编排系统</span>
         </div>
         <div class="guide-intro-desc">
-          基于 WebAssembly C++ AdaptiveHybrid IK 逆解内核与 Three.js 物理拟真渲染。您可以在此进行双臂正逆运动学解算、多关键点动作示教编排、复杂轨迹自动生成与实机代码导出。
+          基于 WebAssembly C++ 6R smart IK 逆解内核与 Three.js 连杆可视化。您可以在此进行机械臂正逆运动学解算、多关键点动作示教编排、复杂轨迹自动生成与实机代码导出。
         </div>
       </div>
 
@@ -167,7 +167,7 @@ export class HelpDialog {
               <span>一键体验：载入预设 Demo 动作序列</span>
             </div>
             <div class="guide-step-text">
-              初次使用？点击顶部导航栏右上角的 <strong>「载入演示动作」</strong> 按钮，系统将自动注入预设的双臂协同律动动作序列，并可在底部时间轴即刻播放体验！
+              初次使用？点击顶部导航栏右上角的 <strong>「载入演示动作」</strong> 按钮，系统将自动注入预设的 6 轴关节动作序列，并可在底部时间轴即刻播放体验！
             </div>
           </div>
         </div>
@@ -286,7 +286,7 @@ export class HelpDialog {
               <span>3. 移动末端位姿 (3 / R)</span>
             </div>
             <div style="color: var(--text-secondary); line-height: 1.6;">
-              鼠标拖拽三轴旋转环动态旋转机械臂末端朝向，关节自适应解算。按 <kbd>Tab</kbd> 键可快速在左臂与右臂之间切换操作对象。
+              鼠标拖拽三轴旋转环动态旋转机械臂末端朝向，关节自适应解算。按 <kbd>Tab</kbd> 键可快速在机械臂之间切换操作对象。
             </div>
           </div>
         </div>
@@ -310,7 +310,7 @@ export class HelpDialog {
             <ul style="padding-left: 16px; color: var(--text-secondary); line-height: 1.8;">
               <li><strong>复位视角</strong>：相机平滑过渡回初始等轴透视位</li>
               <li><strong>网格开关</strong>：显示/隐藏 1200mm 地面参考网格</li>
-              <li><strong>关节轴开关</strong>：显示 7 个旋转关节的旋转轴向量</li>
+              <li><strong>关节轴开关</strong>：显示 6 个旋转关节的旋转轴向量</li>
               <li><strong>末端系开关</strong>：显示末端执行器 RGB 局部坐标系</li>
             </ul>
           </div>
@@ -339,7 +339,7 @@ export class HelpDialog {
               <span style="font-weight: 700;">关节空间控制 (Joint Space)</span>
             </div>
             <div class="guide-mode-desc">
-              直接驱动左右臂各自的 7 个旋转关节角度（度 deg）。包含安全限位检测指示条，超出极限自动警告。
+              直接驱动机械臂各自的 6 个旋转关节角度（度 deg）。包含安全限位检测指示条，超出极限自动警告。
               <div style="margin-top: 6px; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
                 <span class="btn-icon-slot">${ICONS.LIGHTBULB}</span>
                 <span>预设工具栏提供 <strong>零位姿态</strong> (所有角度归零)、<strong>准备姿态</strong> (预就绪构型) 及 <strong>左向右镜像</strong> (左右对称复制)。</span>
@@ -357,7 +357,7 @@ export class HelpDialog {
               输入末端工具目标坐标：位置 <strong>X, Y, Z (毫米 mm)</strong> 与欧拉姿态 <strong>Yaw, Pitch, Roll (度 deg)</strong>。
               <div style="margin-top: 6px; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
                 <span class="btn-icon-slot">${ICONS.LIGHTBULB}</span>
-                <span>内置实时 <strong>AdaptiveHybrid IK 逆解探测器</strong>：绿色徽标代表解算可达且显示空间误差；红色代表超出工作空间或姿态奇异。</span>
+                <span>内置实时 <strong>6R smart IK 逆解探测器</strong>：绿色徽标代表解算可达且显示空间误差；红色代表超出工作空间或姿态奇异。</span>
               </div>
             </div>
           </div>
@@ -372,7 +372,7 @@ export class HelpDialog {
               用于对机械臂末端进行高精度局部调整。支持选择步进跨度 (1mm/1° ~ 25mm/25°)。
               <div style="margin-top: 6px; font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px;">
                 <span class="btn-icon-slot">${ICONS.LIGHTBULB}</span>
-                <span><strong>即点即动</strong>：点击 +X/-X/+Y/-Y/+Z/-Z 或 +Yaw/-Yaw/+Pitch/-Pitch/+Roll/-Roll 按键，机械臂即时执行微步进，无需再次点击执行按钮！顶部设有「左臂 / 右臂 / 双臂」切换标签，布局紧凑不遮挡。</span>
+                <span><strong>即点即动</strong>：点击 +X/-X/+Y/-Y/+Z/-Z 或 +Yaw/-Yaw/+Pitch/-Pitch/+Roll/-Roll 按键，机械臂即时执行微步进，无需再次点击执行按钮！顶部设有「左臂 / 机械臂 / 机械臂」切换标签，布局紧凑不遮挡。</span>
               </div>
             </div>
           </div>
@@ -469,7 +469,7 @@ export class HelpDialog {
           <span>切换左侧【移动末端位姿】工具（鼠标旋转拖拽，实时 IK）</span>
 
           <kbd class="guide-kbd">Tab</kbd>
-          <span>切换当前操作机械臂（左臂 L / 右臂 R）</span>
+          <span>切换当前操作机械臂（左臂 L / 机械臂 R）</span>
 
           <kbd class="guide-kbd">Space</kbd>
           <span>播放 / 暂停动作序列时间轴回放</span>
@@ -503,7 +503,7 @@ export class HelpDialog {
           <li><strong>笛卡尔位置 (Cartesian Position)</strong>: X (前向) / Y (左侧) / Z (天向)，单位毫米 (mm)。基准坐标原点位于 J0 机械臂基座。</li>
           <li><strong>笛卡尔姿态 (Orientation)</strong>: 采用 ZYX 欧拉角 (Yaw / Pitch / Roll)，界面输入单位为度 (deg)。</li>
           <li><strong>Delta 局部微调 (Tool Frame Jog)</strong>: 增量矩阵在末端工具坐标系右乘，实现沿工具朝向的精准相对步进。</li>
-          <li><strong>AdaptiveHybrid IK 逆解特性</strong>: 采用 C++ 编译至 WASM 的实机相同算法，具备非对称限位检查与奇异区平滑解算保护。</li>
+          <li><strong>6R smart IK 逆解特性</strong>: 采用 C++ 编译至 WASM 的实机相同算法，具备非对称限位检查与奇异区平滑解算保护。</li>
         </ul>
       </div>
     `;
@@ -513,9 +513,9 @@ export class HelpDialog {
     if (!this.backdrop) return;
     const chk = this.backdrop.querySelector('#chk-guide-dont-show') as HTMLInputElement;
     if (chk && chk.checked) {
-      localStorage.setItem('srs_7r_guide_viewed', 'true');
+      localStorage.setItem('engineer2026_arm6_guide_viewed', 'true');
     } else {
-      localStorage.removeItem('srs_7r_guide_viewed');
+      localStorage.removeItem('engineer2026_arm6_guide_viewed');
     }
     this.close();
   }

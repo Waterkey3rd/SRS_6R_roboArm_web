@@ -1,5 +1,5 @@
 /* =========================================================
-   SRS 7R Dual-Arm Robot Studio - Minimalist Monochrome Icons
+   Engineer2026 6R Dual-Arm Robot Studio - Minimalist Monochrome Icons
    Pure SVG vector icons using currentColor (Black & White high-end aesthetic)
    ========================================================= */
 

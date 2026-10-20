@@ -5,7 +5,7 @@ export type OperationMode = 'simulation' | 'hardware';
 
 export const ARM_MASK_RIGHT = 1;
 export const ARM_MASK_LEFT = 2;
-export const ARM_MASK_BOTH = 3;
+export const ARM_MASK_SINGLE = 1;
 
 export const MODE_IDLE = 0;
 export const MODE_REMOTE = 1;
@@ -50,7 +50,6 @@ export type DriverStateJson = {
   heartbeat_age_ms: number;
   mode_age_ms: number;
   joint_state_age_ms: number;
-  left_gripper_state: number;
   right_gripper_state: number;
   trajectory_reserved: boolean;
   trajectory_id: number;
@@ -95,8 +94,9 @@ export type ServoTargetJson = {
   arm_mask: number;
   duration_ms: number;
   right: number[];
-  left: number[];
   source?: string;
+  space?: 'JointAngleSpace' | 'CartesianSpace';
+  reference_frame?: 0;
 };
 
 export type HardwareReadyCheck = {

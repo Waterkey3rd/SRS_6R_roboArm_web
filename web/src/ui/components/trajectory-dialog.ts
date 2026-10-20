@@ -15,7 +15,7 @@ export interface TrajectoryPreset {
   sources: Record<Side, string[]>;
 }
 
-const CUSTOM_PRESET_STORAGE = 'srs7r.custom-trajectory-presets.v1';
+const CUSTOM_PRESET_STORAGE = 'engineer2026.arm6.trajectory-presets.v1';
 
 export class TrajectoryDialog {
   private backdrop: HTMLElement | null = null;
@@ -54,10 +54,10 @@ export class TrajectoryDialog {
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 13px; font-weight: 700; color: var(--text-secondary);">动作模板预设:</span>
               <select class="form-select" id="select-preset" style="min-width: 220px;">
-                <option value="sine">1. 双臂对称正弦波浪 (关节空间)</option>
+                <option value="sine">1. 关节正弦波浪 (关节空间)</option>
                 <option value="circle">2. 笛卡尔空间圆周绘制 (笛卡尔)</option>
                 <option value="helix">3. 空间立体螺旋线 (笛卡尔)</option>
-                <option value="wave">4. 协同挥手致意 (关节空间)</option>
+                <option value="wave">4. 关节挥手 (关节空间)</option>
               </select>
               <button class="btn btn-secondary btn-sm" id="btn-save-preset" title="将当前参数与所有公式保存到本浏览器">保存模板</button>
               <button class="btn btn-ghost btn-sm" id="btn-delete-preset" title="删除当前选中的自定义模板">删除模板</button>
@@ -155,7 +155,7 @@ export class TrajectoryDialog {
     host.innerHTML = '';
 
     const labels = this.currentSpace === 'JointAngleSpace'
-      ? ['J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'J7']
+      ? ['J0', 'J1', 'J2', 'J3', 'J4', 'J5']
       : ['X', 'Y', 'Z', 'Yaw', 'Pitch', 'Roll'];
 
     this.formulaInputs = { left: [], right: [] };
@@ -164,7 +164,7 @@ export class TrajectoryDialog {
     for (const side of SIDES) {
       const box = document.createElement('div');
       box.className = 'formula-arm-box';
-      const title = side === 'left' ? '左臂公式 f(t)' : '右臂公式 f(t)';
+      const title = side === 'left' ? '左臂公式 f(t)' : '机械臂公式 f(t)';
       box.innerHTML = `<div class="formula-arm-title ${side}">${title}</div>`;
 
       const values = snapshot[side][this.currentSpace];
@@ -228,8 +228,8 @@ export class TrajectoryDialog {
       this.keypointsInput.value = '24';
 
       const sources = {
-        left: ['0', '-30 + 15\\sin(2\\pi t)', '0', '30 + 15\\sin(2\\pi t)', '0', '0', '0'],
-        right: ['0', '-30 + 15\\sin(2\\pi t)', '0', '30 + 15\\sin(2\\pi t)', '0', '0', '0'],
+        left: ['0', '-30 + 15\\sin(2\\pi t)', '0', '30 + 15\\sin(2\\pi t)', '0', '0'],
+        right: ['0', '-30 + 15\\sin(2\\pi t)', '0', '30 + 15\\sin(2\\pi t)', '0', '0'],
       };
       for (const side of SIDES) {
         sources[side].forEach((s, i) => {
@@ -246,12 +246,12 @@ export class TrajectoryDialog {
       this.keypointsInput.value = '28';
 
       const snapshot = this.controller.snapshotValues();
-      const lx = snapshot.left.CartesianSpace[0].toFixed(1);
+      const lx = snapshot.right.CartesianSpace[0].toFixed(1);
       const rx = snapshot.right.CartesianSpace[0].toFixed(1);
 
       const sources = {
         left: [`${lx} + 30\\sin(2\\pi t)`, '240 + 30\\cos(2\\pi t) - 30', '0', '30', '0', '-90'],
-        right: [`${rx} + 30\\sin(2\\pi t)`, '-240 - 30\\cos(2\\pi t) + 30', '0', '-30', '0', '90'],
+        right: snapshot.right.CartesianSpace.map((v, i) => i === 0 ? String.raw`${v}+20\sin(2\pi t)` : i === 2 ? String.raw`${v}+20\cos(2\pi t)-20` : String(v)),
       };
       for (const side of SIDES) {
         sources[side].forEach((s, i) => {
@@ -268,12 +268,12 @@ export class TrajectoryDialog {
       this.keypointsInput.value = '30';
 
       const snapshot = this.controller.snapshotValues();
-      const lx = snapshot.left.CartesianSpace[0].toFixed(1);
+      const lx = snapshot.right.CartesianSpace[0].toFixed(1);
       const rx = snapshot.right.CartesianSpace[0].toFixed(1);
 
       const sources = {
         left: [`${lx} + 25\\sin(2\\pi t)`, '240 + 25\\cos(2\\pi t) - 25', '40 t', '30', '0', '-90'],
-        right: [`${rx} + 25\\sin(2\\pi t)`, '-240 - 25\\cos(2\\pi t) + 25', '40 t', '-30', '0', '90'],
+        right: snapshot.right.CartesianSpace.map((v, i) => i === 0 ? String.raw`${v}+15\sin(2\pi t)` : i === 2 ? `${v}+20t` : String(v)),
       };
       for (const side of SIDES) {
         sources[side].forEach((s, i) => {
@@ -290,8 +290,8 @@ export class TrajectoryDialog {
       this.keypointsInput.value = '25';
 
       const sources = {
-        left: ['-20', '-40', '10', '50', '25\\sin(4\\pi t)', '10', '0'],
-        right: ['20', '-40', '-10', '50', '-25\\sin(4\\pi t)', '-10', '0'],
+        left: ['-20', '-40', '10', '50', '25\\sin(4\\pi t)', '10'],
+        right: ['20', '-40', '-10', '50', '-25\\sin(4\\pi t)', '-10'],
       };
       for (const side of SIDES) {
         sources[side].forEach((s, i) => {
@@ -335,10 +335,10 @@ export class TrajectoryDialog {
 
   private refreshPresetOptions(selected = 'sine'): void {
     const builtIns = [
-      ['sine', '1. 双臂对称正弦波浪 (关节空间)'],
+      ['sine', '1. 关节正弦波浪 (关节空间)'],
       ['circle', '2. 笛卡尔空间圆周绘制 (笛卡尔)'],
       ['helix', '3. 空间立体螺旋线 (笛卡尔)'],
-      ['wave', '4. 协同挥手致意 (关节空间)'],
+      ['wave', '4. 关节挥手 (关节空间)'],
     ];
     const custom = this.loadCustomPresets();
     this.presetSelect.innerHTML = `

@@ -65,7 +65,7 @@ export class DeployIK {
       }
     }
     const module = await factory({ locateFile: (name: string) => `${resolvedBase}${name}`, ...options });
-    if (module._deploy_model_version() !== 1) throw new Error('不支持的机械臂 WASM 模型版本');
+    if (module._deploy_model_version() !== 2) throw new Error('不支持的机械臂 WASM 模型版本');
     return new DeployIK(module);
   }
 
@@ -81,7 +81,7 @@ export class DeployIK {
 
   solve(side: Side, rotation: number[], positionMm: number[], current: number[]): IkResult {
     let ok = 0;
-    const [q, diagnostics] = this.arrays([9, 3, 7, 7, 8], pointers => {
+    const [q, diagnostics] = this.arrays([9, 3, 6, 6, 8], pointers => {
       this.module.HEAPF64.set(rotation, pointers[0] / 8);
       this.module.HEAPF64.set(positionMm, pointers[1] / 8);
       this.module.HEAPF64.set(current, pointers[2] / 8);
@@ -95,7 +95,7 @@ export class DeployIK {
 
   fk(side: Side, q: number[]): FkResult {
     let ok = 0;
-    const [rotation, position] = this.arrays([7, 9, 3], pointers => {
+    const [rotation, position] = this.arrays([6, 9, 3], pointers => {
       this.module.HEAPF64.set(q, pointers[0] / 8);
       ok = this.module._deploy_fk(sideIndex(side), pointers[0], pointers[1], pointers[2]);
     }).slice(1);
@@ -105,7 +105,7 @@ export class DeployIK {
 
   chain(side: Side, q: number[]): ChainResult {
     let ok = 0;
-    const [positionsFlat, axesFlat] = this.arrays([7, 24, 21], pointers => {
+    const [positionsFlat, axesFlat] = this.arrays([6, 21, 18], pointers => {
       this.module.HEAPF64.set(q, pointers[0] / 8);
       ok = this.module._deploy_fk_chain(sideIndex(side), pointers[0], pointers[1], pointers[2]);
     }).slice(1);
@@ -115,16 +115,16 @@ export class DeployIK {
   }
 
   limits(side: Side): { lower: number[]; upper: number[] } {
-    const [lower, upper] = this.arrays([7, 7], pointers => {
+    const [lower, upper] = this.arrays([6, 6], pointers => {
       if (!this.module._deploy_get_joint_limits(sideIndex(side), pointers[0], pointers[1])) throw new Error('关节限位读取失败');
     });
     return { lower, upper };
   }
 
   trajectoryDuration(start: number[], target: number[], requestedDurationMs: number): number {
-    if (start.length !== 7 || target.length !== 7) throw new Error('速度规划需要 7 个起止关节角');
+    if (start.length !== 6 || target.length !== 6) throw new Error('速度规划需要 6 个起止关节角');
     let duration = 0;
-    this.arrays([7, 7], pointers => {
+    this.arrays([6, 6], pointers => {
       this.module.HEAPF64.set(start, pointers[0] / 8);
       this.module.HEAPF64.set(target, pointers[1] / 8);
       duration = this.module._deploy_trajectory_duration(pointers[0], pointers[1], requestedDurationMs);
@@ -135,7 +135,7 @@ export class DeployIK {
 
   trajectorySample(start: number[], target: number[], durationMs: number, elapsedMs: number): TrajectorySample {
     let ok = 0;
-    const [position, velocity] = this.arrays([7, 7, 7, 7], pointers => {
+    const [position, velocity] = this.arrays([6, 6, 6, 6], pointers => {
       this.module.HEAPF64.set(start, pointers[0] / 8);
       this.module.HEAPF64.set(target, pointers[1] / 8);
       ok = this.module._deploy_trajectory_sample(

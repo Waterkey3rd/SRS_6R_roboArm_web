@@ -40,12 +40,12 @@ TEST(Protocol, NoiseBadChecksumAndPartialTimeout) {
   ASSERT_TRUE(parser.next(frame, 122)); EXPECT_EQ(frame.command, Command::Stop);
 }
 TEST(Protocol, ExactPayloadLengthsAndCounterWrap) {
-  Writer servo; servo.u16(1); servo.u16(2); servo.u8(3); servo.u8(0); servo.u16(200);
-  for (int i = 0; i < 14; ++i) servo.f32(0);
-  EXPECT_EQ(servo.bytes.size(), 64U); EXPECT_EQ(encode(Command::Servo, servo.bytes).size(), 71U);
+  Writer servo; servo.u16(1); servo.u16(2); servo.u8(1); servo.u8(0); servo.u16(200);
+  for (int i = 0; i < 6; ++i) servo.f32(0);
+  EXPECT_EQ(servo.bytes.size(), 32U); EXPECT_EQ(encode(Command::Servo, servo.bytes).size(), 39U);
   Writer chunk; chunk.u16(1); chunk.u16(2); chunk.u16(3); chunk.u16(0); chunk.u8(4);
-  for (int i = 0; i < 4; ++i) { chunk.u32(i); for (int j = 0; j < 14; ++j) chunk.f32(0); }
-  EXPECT_EQ(chunk.bytes.size(), 249U); EXPECT_EQ(encode(Command::Chunk, chunk.bytes).size(), 256U);
+  for (int i = 0; i < 4; ++i) { chunk.u32(i); for (int j = 0; j < 6; ++j) chunk.f32(0); }
+  EXPECT_EQ(chunk.bytes.size(), 121U); EXPECT_EQ(encode(Command::Chunk, chunk.bytes).size(), 128U);
   EXPECT_TRUE(newer(0, 65535)); EXPECT_FALSE(newer(65535, 0));
   EXPECT_FALSE(newer(12, 12)); EXPECT_FALSE(newer(32768, 0));
   Reader reader(servo.bytes);

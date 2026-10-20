@@ -53,7 +53,7 @@ export class ArmRenderer {
 
   // Viewport 3-Tool Interactive Dragging & Coordinate Frame State
   private currentToolMode: ViewportToolMode = 'none';
-  private activeSide: Side = 'left';
+  private activeSide: Side = 'right';
   private readonly refFrame: THREE.Group;
   private readonly ikTargetProxy = new THREE.Object3D();
   private isDraggingGizmo = false;
@@ -256,7 +256,7 @@ export class ArmRenderer {
       roughness: 0.4,
     });
 
-    const joints = Array.from({ length: 7 }, () => {
+    const joints = Array.from({ length: 6 }, () => {
       const mesh = new THREE.Mesh(new THREE.SphereGeometry(15, 24, 18), jointMaterial);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -264,7 +264,7 @@ export class ArmRenderer {
       return mesh;
     });
 
-    const links = Array.from({ length: 7 }, () => {
+    const links = Array.from({ length: 6 }, () => {
       const mesh = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 1, 20), linkMaterial);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -272,7 +272,7 @@ export class ArmRenderer {
       return mesh;
     });
 
-    const axes = Array.from({ length: 7 }, () => {
+    const axes = Array.from({ length: 6 }, () => {
       const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), undefined, 42, 0xd97706, 10, 5);
       group.add(arrow);
       return arrow;
@@ -414,7 +414,7 @@ export class ArmRenderer {
   private updateSingleArmMesh(side: Side, q: number[]): void {
     const chain = this.ik.chain(side, q);
     const meshes = this.arms[side];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 6; i++) {
       const a = new THREE.Vector3(...(chain.positions[i] as [number, number, number]));
       const b = new THREE.Vector3(...(chain.positions[i + 1] as [number, number, number]));
       meshes.joints[i].position.copy(a);
@@ -609,8 +609,9 @@ export class ArmRenderer {
   }
 
   setActiveSide(side: Side): void {
+    side = 'right';
     if (this.activeSide === side) return;
-    this.activeSide = side;
+    this.activeSide = 'right';
     if (this.currentToolMode === 'translate' || this.currentToolMode === 'rotate') {
       this.syncProxyToActiveArm();
     }

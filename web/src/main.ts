@@ -10,7 +10,7 @@ async function bootstrap() {
   root.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 16px; background-color: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
       <div style="width: 42px; height: 42px; border: 3px solid #e2e8f0; border-top-color: #0284c7; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-      <div style="font-size: 15px; font-weight: 600;">正在载入 SRS 7R 双臂机器人 WebAssembly 运动学内核...</div>
+      <div style="font-size: 15px; font-weight: 600;">正在载入 Engineer2026 6R 机械臂机器人 WebAssembly 运动学内核...</div>
       <div style="font-size: 12px; color: #64748b;">AdaptiveHybrid IK · Three.js 刚体渲染器</div>
     </div>
     <style>

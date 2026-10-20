@@ -1,32 +1,13 @@
-# eng26_web_bridge
+# 六轴 Web bridge
 
-浏览器与 `eng26_arm_driver` 之间的薄桥接节点，只向 rosbridge 暴露标准消息：
+节点 `eng26_web_bridge` 对接当前 `eng26_arm_driver`，使用标准 ROS 类型供 rosbridge 访问。
 
-- `/arm_web/joint_state` (`sensor_msgs/JointState`，可靠转发)
-- `/arm_web/driver_state`、`/arm_web/command_result`、`/arm_web/event` (`std_msgs/String` JSON)
-- `/arm_web/servo_target` (`std_msgs/String` JSON -> `/arm_driver/servo_target`)
-- `/arm_web/stop`、`/arm_web/hold` (`std_srvs/Trigger`)
+- `/arm_web/joint_state`：6 关节 `sensor_msgs/JointState`。
+- `/arm_web/driver_state`、`/arm_web/command_result`、`/arm_web/event`：`std_msgs/String` JSON。
+- `/arm_web/servo_target`：JSON `{"client_id":"1","arm_mask":1,"duration_ms":800,"right":[0,0,0,0,0,0]}`，角度为 rad。仅支持单臂 6 个有限值。
+- 同一 `/arm_web/servo_target` JSON 可加 `"space":"CartesianSpace","reference_frame":0`，此时 `right=[x,y,z,yaw,pitch,roll]` 为基座系绝对 TCP 位姿（m/rad），节点改发既有 `/arm_driver/cartesian_jog`（`CartesianJog`）。省略 space 或 `JointAngleSpace` 时保持原关节目标路径。`cartesian_topic` 参数可配置对应驱动 topic，默认值见 config。
+- `/arm_web/stop` 与 `/arm_web/hold`：`std_srvs/Trigger` 服务，转交会话驱动执行，不绕过其授权。
 
-## 运行
+节点补充当前 session/epoch 和本地命令时间，拒绝过期状态、未授权模式及错误维度；ACK 为通信层接受结果。启动方式和完整合同见 [总 README](../../../../README.md)。
 
-```bash
-colcon build --symlink-install --packages-up-to eng26_arm_driver eng26_web_bridge
-source install/setup.bash
-
-ros2 launch eng26_arm_driver driver.launch.py device:=/dev/serial/by-id/your_device
-ros2 launch eng26_web_bridge web_bridge.launch.py
-
-sudo apt install ros-$ROS_DISTRO-rosbridge-suite
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml port:=9090
-```
-
-WebView 默认连接 `ws://<页面host>:9090`，也可通过 `?rosbridge=ws://host:port`
-或页面右上角齿轮设置。
-
-## 注意
-
-- 本节点只做校验、JSON 编解码和 QoS 转换；`servo_target` 的最终安全门禁仍在
-  `eng26_arm_driver` 内。
-- `/arm_web/servo_target` JSON 字段：`client_id`、`arm_mask`、`duration_ms`、
-  `right`、`left`。
-- STOP 会通过 `eng26_arm_driver` 触发 session 轮换，之后 MCU 需要重新 rearm。
+无 ROS 环境下运行 `python test/test_web_targets.py`，覆盖关节/位姿分流、m/rad 保持、session/epoch、拒绝条件和共享限频。

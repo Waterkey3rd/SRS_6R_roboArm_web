@@ -6,6 +6,8 @@ import { ArmWebClient, type ArmRosProfile } from '../ros/arm-web-client';
 import type { OperationMode, RobotEventJson } from '../ros/types';
 import { EVENT_FAULT, EVENT_LINK_LOST, EVENT_MODE_CHANGED, EVENT_VLA_TIMEOUT } from '../ros/types';
 import { HardwareExecutor } from '../runtime/hardware-executor';
+import { MotionRecorder } from '../runtime/motion-recorder';
+import { HomologousController } from '../serial/homologous-controller';
 import { buildHardwareFrame, buildHardwarePlan, type HardwareFrame } from '../runtime/hardware-plan';
 import { cartesianTarget, solveTarget } from '../sequence';
 import type { ArmState, Side } from '../types';
@@ -51,17 +53,23 @@ export class App {
   private operationMode: OperationMode = 'simulation';
   private rosClient!: ArmWebClient;
   private hardwareExecutor!: HardwareExecutor;
+  private controllerUsb!: HomologousController;
+  private simulationState: ArmState;
   private hardwareState: ArmState | null = null;
   private hardwareStateAtMs = 0;
   private lastControlSyncAtMs = 0;
   private isHardwareRunning = false;
   private lastRosErrorAtMs = 0;
   private rosStatusTimer = 0;
+  private lastControllerErrorAtMs = -Infinity;
+  private recording: MotionRecorder | null = null;
+  private recordingTimer: ReturnType<typeof setInterval> | null = null;
+  private recordingUsbActive = false;
 
   private constructor(
     private readonly host: HTMLElement,
     private readonly controller: RoboArmController,
-  ) {}
+  ) { this.simulationState = cloneState(controller.current); }
 
   static async init(host: HTMLElement, wasmBase = './wasm/'): Promise<App> {
     const controller = await RoboArmController.create(wasmBase);
@@ -82,13 +90,17 @@ export class App {
       onLoadDemo: () => this.loadDemoSequence(),
       onOpenTrajectory: () => this.trajectoryDialog.open(),
       onOpenHistory: () => this.operationLogDialog.open(),
-      onOpenIO: () => this.ioDialog.open(),
+      onOpenIO: () => { this.stopRecording(); this.ioDialog.open(); },
       onToggleTheme: () => this.toggleTheme(),
       onOpenHelp: () => this.helpDialog.open(),
       onSetMode: (mode) => this.setOperationMode(mode),
       onToggleRosConnect: () => this.toggleRosConnection(),
       onEditRosUrl: () => this.editRosUrl(),
       onEmergencyStop: () => this.emergencyStop(),
+      onToggleControllerConnect: () => { void this.toggleControllerConnection(); },
+      onToggleControllerMode: () => this.toggleControllerMode(),
+      onIdentifyControllerType: () => this.controllerUsb.identifyDataType(),
+      onToggleRecording: (intervalMs) => this.toggleRecording(intervalMs),
     });
     root.appendChild(this.topBar.element);
 
@@ -156,8 +168,7 @@ export class App {
       this.activeKeypointIndex = this.controller.history.length - 1;
       this.timeline.updateTimeline(this.activeKeypointIndex);
       if (generated.length > 0) {
-        this.renderer.update(generated[0].start);
-        this.viewportHud.update(generated[0].start);
+        this.renderState(generated[0].start);
         this.controlPanel.syncState(generated[0].start);
         this.startPlayback(firstGeneratedIndex);
       }
@@ -196,7 +207,7 @@ export class App {
     this.bindKeyboardShortcuts();
 
     // Automatically pop up operation guide for first-time visitors
-    const hasSeenGuide = localStorage.getItem('srs_7r_guide_viewed');
+    const hasSeenGuide = localStorage.getItem('engineer2026_arm6_guide_viewed');
     if (!hasSeenGuide) {
       setTimeout(() => {
         this.helpDialog.open();
@@ -207,8 +218,7 @@ export class App {
   private syncAllViews(): void {
     this.updateViewportSource();
     const cur = this.getDisplayState();
-    this.renderer.update(cur);
-    this.viewportHud.update(cur);
+    this.renderState(cur);
     if (this.operationMode !== 'hardware' || this.controlPanel.isFollowEnabled()) {
       this.controlPanel.syncState(cur);
     }
@@ -217,14 +227,20 @@ export class App {
   private syncDisplayOnly(): void {
     this.updateViewportSource();
     const cur = this.getDisplayState();
-    this.renderer.update(cur);
-    this.viewportHud.update(cur);
+    this.renderState(cur);
+  }
+
+  private renderState(state: ArmState): void {
+    if (this.operationMode === 'simulation') this.simulationState = cloneState(state);
+    this.renderer.update(state);
+    this.viewportHud.update(state);
   }
 
   private updateViewportSource(): void {
     const hardware = this.operationMode === 'hardware';
     const stale = hardware && (!this.rosClient || !this.rosClient.readyCheck().ok);
-    this.viewportHud.setSource(hardware ? '实机反馈' : '仿真姿态', stale);
+    this.viewportHud.setSource(hardware ? '实机反馈'
+      : this.controllerUsb?.mode === 'active' ? 'USB 从动仿真' : '仿真姿态', stale);
   }
 
   private getDisplayState(): ArmState {
@@ -240,10 +256,40 @@ export class App {
   private setupRos(): void {
     this.rosClient = new ArmWebClient(loadRosBridgeUrl(), loadRosProfile());
     this.hardwareExecutor = new HardwareExecutor(this.rosClient);
+    this.controllerUsb = new HomologousController({
+      getFollowTarget: (type) => this.operationMode === 'simulation'
+        ? this.controller.simulationFeedback(type, this.simulationState)
+        : this.rosClient.getControllerFeedback(type, this.controller.ik),
+      onActiveJoints: (joints) => {
+        if (this.operationMode === 'simulation') {
+          this.applyControllerSimulation('joints', joints);
+        } else if (!this.hardwareExecutor.isRunning) {
+          this.rosClient.publishControllerJoints(joints);
+        }
+      },
+      onActivePose: (pose) => {
+        if (this.operationMode === 'simulation') {
+          this.applyControllerSimulation('pose', pose);
+          return;
+        }
+        if (this.hardwareExecutor.isRunning) return;
+        try {
+          this.rosClient.publishControllerPose(pose, (values) => {
+            // The legacy JointState-only profile uses the same IK as UI Cartesian commands.
+            const mmPose = values.map((value, index) => index < 3 ? value * 1000 : value);
+            return solveTarget(this.controller.ik, 'right', cartesianTarget(mmPose), this.getHardwareCurrentState().right);
+          });
+        } catch (error: any) {
+          this.showControllerError(error);
+        }
+      },
+      onState: () => this.updateRosStatus(),
+      onError: (error) => this.showControllerError(error),
+    });
 
     this.rosClient.on('connection', () => {
       this.updateRosStatus();
-      this.syncDisplayOnly();
+      if (this.operationMode === 'hardware') this.syncDisplayOnly();
     });
 
     this.rosClient.on('driverState', () => {
@@ -293,6 +339,11 @@ export class App {
     const connection = this.rosClient.connectionState;
     const check = this.rosClient.readyCheck();
     const enabled = this.operationMode === 'hardware';
+    if (this.controllerUsb.mode === 'active' && enabled && !check.ok) {
+      this.controllerUsb.setMode('follow');
+    }
+    const usbActive = this.controllerUsb.mode === 'active';
+    this.updateControllerStatus();
 
     if (connection !== 'connected') {
       const kind = connection === 'connecting' ? 'connecting' : (connection === 'error' ? 'error' : 'offline');
@@ -309,14 +360,159 @@ export class App {
       this.topBar.setRosStatus('connected', 'ROS 已连接', check.reason);
     }
 
-    this.controlPanel.setHardwareStatus(enabled, check.ok, check.reason);
+    this.controlPanel.setHardwareStatus(enabled, check.ok && !usbActive,
+      usbActive ? '同构控制器主动中，切回跟随后可使用网页动作' : check.reason);
     this.updateViewportSource();
+    this.updateRecordingStatus();
+  }
+
+  private recordingState(): ArmState | null {
+    const state = this.operationMode === 'simulation' ? this.simulationState
+      : this.rosClient.isConnected && this.hardwareState && Date.now() - this.hardwareStateAtMs <= 300
+        ? this.hardwareState : null;
+    if (!state) return null;
+    try {
+      // Reject a bad measurement before it can invalidate an otherwise usable take.
+      const q = state.right;
+      const limits = this.controller.ik.limits('right');
+      if (q.length !== 6 || q.some((value, i) => !Number.isFinite(value)
+        || value < limits.lower[i] - 2e-6 || value > limits.upper[i] + 2e-6)) return null;
+      return state;
+    } catch { return null; }
+  }
+
+  private toggleRecording(intervalMs: number): void {
+    if (this.recording) { this.stopRecording(); return; }
+    const state = this.recordingState();
+    if (!state) {
+      showToast({ message: '请先连接 ROS 并等待新鲜实机关节反馈', type: 'warning' });
+      return;
+    }
+    try {
+      this.recording = new MotionRecorder(intervalMs, state, performance.now());
+      this.recordingUsbActive = this.controllerUsb.mode === 'active';
+      this.recordingTimer = setInterval(() => this.pollRecording(), intervalMs);
+      this.updateRecordingStatus();
+    } catch (error: any) {
+      showToast({ title: '无法开始录包', message: error.message || String(error), type: 'warning' });
+    }
+  }
+
+  private pollRecording(): void {
+    if (!this.recording) return;
+    const reason = this.recording.capture(this.recordingState(), performance.now());
+    if (reason) this.stopRecording(reason);
+    else this.updateRecordingStatus();
+  }
+
+  private stopRecording(reason = ''): void {
+    const take = this.recording;
+    if (!take) return;
+    this.recording = null;
+    if (this.recordingTimer !== null) clearInterval(this.recordingTimer);
+    this.recordingTimer = null;
+    try {
+      const source = this.operationMode === 'hardware' ? '实机录包' : '仿真录包';
+      const count = this.controller.appendRecording(take.samples, take.intervalMs, source);
+      this.activeKeypointIndex = this.controller.history.length - 1;
+      this.timeline.updateTimeline(this.activeKeypointIndex);
+      showToast({ title: reason ? '录包已结束' : '录包已保存',
+        message: `${reason ? reason + '；' : ''}${count ? `已追加 ${count} 个动作点，采样 ${take.intervalMs} ms` : '不足两个采样点，未新增动作'}`,
+        type: reason ? 'warning' : 'success' });
+    } catch (error: any) {
+      showToast({ title: '录包保存失败', message: error.message || String(error), type: 'danger' });
+    }
+    this.updateRecordingStatus();
+  }
+
+  private updateRecordingStatus(): void {
+    if (this.recordingUsbActive && this.recording
+      && (this.controllerUsb.mode !== 'active' || this.controllerUsb.connection !== 'connected')) {
+      this.stopRecording('USB 主动模式已退出');
+      return;
+    }
+    if (this.recording && !this.recordingState()) {
+      this.stopRecording('实机反馈已断开或过期');
+      return;
+    }
+    this.topBar.setRecordingStatus(this.recording !== null, this.recordingState() !== null,
+      this.operationMode === 'hardware' ? '实机反馈' : '仿真姿态',
+      this.recording?.samples.length, this.recording?.durationMs);
+  }
+
+  private updateControllerStatus(): void {
+    const usb = this.controllerUsb;
+    const simulation = this.operationMode === 'simulation';
+    const fresh = this.rosClient.isConnected && this.rosClient.latestArmState !== null
+      && Date.now() - this.rosClient.jointStateAtMs <= 300;
+    const detail = usb.connection === 'connected'
+      ? (usb.mode === 'active' ? simulation ? 'USB 已连接 · 从动仿真' : 'USB 已连接 · 主动上传'
+        : !usb.feedbackType ? 'USB 已连接 · 等待类型声明'
+          : simulation ? 'USB 已连接 · 跟随虚拟臂' : fresh ? 'USB 已连接 · 跟随实机' : 'USB 已连接 · 等待实机反馈')
+      : usb.connection === 'connecting' ? '请选择同构控制器串口'
+        : usb.connection === 'disconnecting' ? 'USB 断开中' : 'USB 未连接';
+    this.topBar.setControllerStatus(usb.connection, usb.mode, detail, usb.feedbackType);
+    this.topBar.setControllerDataType(usb.connection, usb.dataType, usb.identifying, usb.identificationTimedOut);
+  }
+
+  private showControllerError(error: Error): void {
+    const now = Date.now();
+    if (now - this.lastControllerErrorAtMs < 1500) return;
+    this.lastControllerErrorAtMs = now;
+    showToast({ title: '同构控制器 USB', message: error.message || String(error), type: 'warning' });
+  }
+
+  private async toggleControllerConnection(): Promise<void> {
+    try {
+      if (this.controllerUsb.connection === 'connected') await this.controllerUsb.disconnect();
+      else await this.controllerUsb.connect();
+    } catch (error: any) {
+      if (error?.name !== 'NotFoundError') {
+        showToast({ title: 'USB 连接失败', message: error.message || String(error), type: 'warning' });
+      }
+    }
+  }
+
+  private toggleControllerMode(): void {
+    if (this.controllerUsb.connection !== 'connected') return;
+    if (this.controllerUsb.mode === 'active') {
+      this.controllerUsb.setMode('follow');
+      return;
+    }
+    if (this.operationMode === 'hardware' && (!this.rosClient.readyCheck().ok || this.hardwareExecutor.isRunning)) {
+      showToast({ message: '请先选择实机接入，等待 ROS 实机就绪并结束网页动作，再开启主动模式', type: 'warning' });
+      return;
+    }
+    if (this.operationMode === 'simulation') {
+      this.stopPlayback();
+      this.isAnimating = false;
+      // Continue IK from the pose currently shown, including an interrupted animation.
+      this.controller.current = cloneState(this.simulationState);
+    }
+    this.controllerUsb.setMode('active');
+  }
+
+  private applyControllerSimulation(type: 'joints' | 'pose', values: number[]): void {
+    try {
+      this.controller.applySimulationTarget(type, values);
+    } catch (error: any) {
+      this.showControllerError(error);
+    }
+  }
+
+  private simulationControlledByUsb(): boolean {
+    if (this.operationMode !== 'simulation' || this.controllerUsb.mode !== 'active') return false;
+    showToast({ message: '当前为 USB 从动仿真，请切回跟随后使用网页动作', type: 'warning' });
+    return true;
   }
 
   private handleRosEvent(event: RobotEventJson): void {
+    if (this.operationMode !== 'hardware') return;
     const type = Number(event.type ?? -1);
     const dangerous = [EVENT_MODE_CHANGED, EVENT_FAULT, EVENT_VLA_TIMEOUT, EVENT_LINK_LOST].includes(type);
     if (!dangerous) return;
+    this.stopRecording('MCU 状态发生变化');
+    this.controllerUsb.setMode('follow');
 
     const labels: Record<number, string> = {
       [EVENT_MODE_CHANGED]: 'MCU 模式变化',
@@ -341,7 +537,9 @@ export class App {
 
   private setOperationMode(mode: OperationMode): void {
     if (mode === this.operationMode) return;
+    this.stopRecording('切换运行模式');
     this.operationMode = mode;
+    this.controllerUsb.setMode('follow');
     this.topBar.setMode(mode);
 
     if (mode === 'hardware') {
@@ -392,6 +590,16 @@ export class App {
   }
 
   private emergencyStop(): void {
+    this.stopRecording('用户点击 STOP');
+    this.controllerUsb.setMode('follow');
+    if (this.operationMode === 'simulation') {
+      this.stopPlayback();
+      this.isAnimating = false;
+      this.controller.current = cloneState(this.simulationState);
+      this.syncAllViews();
+      showToast({ message: '仿真已停止，USB 已恢复跟随', type: 'info' });
+      return;
+    }
     if (this.hardwareExecutor?.isRunning) {
       this.hardwareExecutor.abort('用户点击 STOP');
     }
@@ -425,6 +633,7 @@ export class App {
   // Motion Execution with Smooth Interpolation
   // =========================================================
   private executeJoint(values: Record<Side, number[]>, durationMs: number): void {
+    if (this.simulationControlledByUsb()) return;
     if (this.operationMode === 'hardware') {
       void this.executeHardwareJoint(values, durationMs);
       return;
@@ -444,6 +653,7 @@ export class App {
   }
 
   private executeCartesian(values: Record<Side, number[]>, durationMs: number): void {
+    if (this.simulationControlledByUsb()) return;
     if (this.operationMode === 'hardware') {
       void this.executeHardwareCartesian(values, durationMs);
       return;
@@ -463,6 +673,7 @@ export class App {
   }
 
   private executeDelta(values: Record<Side, number[]>, durationMs: number): void {
+    if (this.simulationControlledByUsb()) return;
     if (this.operationMode === 'hardware') {
       void this.executeHardwareDelta(values, durationMs);
       return;
@@ -482,8 +693,8 @@ export class App {
 
   private validateHardwareTarget(target: ArmState): void {
     for (const side of SIDES) {
-      if (!Array.isArray(target[side]) || target[side].length !== 7) {
-        throw new Error(`${side === 'left' ? '左' : '右'}臂目标必须包含 7 个关节角`);
+      if (!Array.isArray(target[side]) || target[side].length !== 6) {
+        throw new Error(`${side === 'left' ? '左' : '右'}臂目标必须包含 6 个关节角`);
       }
       const limits = this.controller.ik.limits(side);
       target[side].forEach((value, index) => {
@@ -500,6 +711,10 @@ export class App {
   }
 
   private async executeHardwareTarget(target: ArmState, durationMs: number, label: string): Promise<void> {
+    if (this.controllerUsb.mode === 'active') {
+      showToast({ message: '同构控制器主动中，请先切回跟随', type: 'warning' });
+      return;
+    }
     this.validateHardwareTarget(target);
     try {
       const start = this.getHardwareCurrentState();
@@ -585,8 +800,7 @@ export class App {
       const progress = Math.min(1, elapsed / effectiveDurationMs);
 
       const interpolated = this.controller.interpolate(frame, elapsed);
-      this.renderer.update(interpolated);
-      this.viewportHud.update(interpolated);
+      this.renderState(interpolated);
       this.viewportHud.showMotionProgress(true, `运动过渡中... ${(progress * 100).toFixed(0)}%`);
 
       if (progress < 1) {
@@ -603,6 +817,7 @@ export class App {
   }
 
   private undo(): void {
+    if (this.simulationControlledByUsb()) return;
     if (this.operationMode === 'hardware') {
       showToast({ message: '实机模式不会修改仿真历史；请切回纯仿真模式再回退', type: 'warning' });
       return;
@@ -620,6 +835,7 @@ export class App {
   }
 
   private reset(): void {
+    if (this.simulationControlledByUsb()) return;
     if (this.operationMode === 'hardware') {
       showToast({ message: '实机模式不会重置仿真场景；请切回纯仿真模式执行重置', type: 'warning' });
       return;
@@ -649,6 +865,10 @@ export class App {
   }
 
   private async toggleHardwarePlayback(): Promise<void> {
+    if (this.controllerUsb.mode === 'active') {
+      showToast({ message: '同构控制器主动中，请先切回跟随', type: 'warning' });
+      return;
+    }
     if (this.hardwareExecutor.isRunning) {
       this.hardwareExecutor.abort('用户取消实机序列');
       this.setHardwareRunning(false);
@@ -698,6 +918,7 @@ export class App {
   }
 
   private startPlayback(fromIndex = 0): void {
+    if (this.simulationControlledByUsb()) return;
     if (this.controller.history.length === 0) {
       showToast({ message: '动作序列为空，无法播放', type: 'warning' });
       return;
@@ -748,8 +969,7 @@ export class App {
       const progress = Math.min(1, elapsed / duration);
 
       const interpolated = this.controller.interpolate(frame, elapsed);
-      this.renderer.update(interpolated);
-      this.viewportHud.update(interpolated);
+      this.renderState(interpolated);
 
       // Calculate total sequence progress
       let elapsedTotalMs = 0;
@@ -817,6 +1037,7 @@ export class App {
   }
 
   private goToKeypoint(index: number): void {
+    if (this.simulationControlledByUsb()) return;
     this.stopPlayback();
     const history = this.controller.history;
     if (index < 0 || index >= history.length) return;
@@ -834,6 +1055,7 @@ export class App {
   }
 
   private scrubTo(progress: number): void {
+    if (this.simulationControlledByUsb()) return;
     if (this.operationMode === 'hardware') {
       showToast({ message: '实机模式不支持拖动时间轴，请使用关键点单步或序列下发', type: 'warning' });
       return;
@@ -854,8 +1076,7 @@ export class App {
       if (accumulated + dur >= targetMs || i === history.length - 1) {
         const frameProgress = Math.max(0, Math.min(1, (targetMs - accumulated) / dur));
         const state = this.controller.interpolate(frame, frameProgress * dur);
-        this.renderer.update(state);
-        this.viewportHud.update(state);
+        this.renderState(state);
         this.controlPanel.syncState(state);
         this.timeline.setProgress(progress, targetMs / 1000, totalDurationMs / 1000);
         this.activeKeypointIndex = i;
@@ -901,7 +1122,7 @@ export class App {
       this.syncAllViews();
       showToast({
         title: '演示动作载入成功',
-        message: `成功载入内置实机舞蹈动作（共 ${this.controller.history.length} 个关键点），点击播放即可演示`,
+        message: `成功载入内置 6 轴演示动作（共 ${this.controller.history.length} 个关键点），点击播放即可演示`,
         type: 'success',
       });
     } catch (err: any) {
@@ -975,5 +1196,5 @@ function loadRosBridgeUrl(): string {
 
 function loadRosProfile(): ArmRosProfile {
   const params = new URLSearchParams(window.location.search);
-  return params.get('rosProfile') === 'web_bridge' ? 'web_bridge' : 'ros2_real';
+  return params.get('rosProfile') === 'ros2_real' ? 'ros2_real' : 'web_bridge';
 }

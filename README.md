@@ -1,135 +1,130 @@
-# SRS 7R Dual-Arm Web Visualizer
+# Engineer2026 单臂 6R Web / ROS2 上位机
 
-这是从实机机械臂工程中独立出来的 Web 仓库。浏览器端使用 Three.js 显示双臂，
-通过 WebAssembly 运行与实机一致的 7R IK/FK 和五次多项式速度规划；运行时不需要
-Python、MuJoCo 或后端服务。
-
-## 功能
-
-- 关节角、笛卡尔位姿和增量运动控制
-- LaTeX `f(t)` 轨迹、起点自动衔接及自定义模板
-- 历史关键点查看、修改和下游 IK 重算
-- 全部或连续区间动作轨迹 JSON 导入/导出
-- 左右臂独立五次速度规划与速度/加速度限幅
-- Three.js 简化刚体显示
-
-## 目录
-
-```text
-web/                                      Vite + TypeScript 前端
-web/public/wasm/                          可直接使用的 WASM 产物
-wasm/                                     WASM C++ 接口与构建脚本
-deploy_arm_model.hpp                      实机几何、安装位姿和关节限制
-Arm/Lib/myikine7R/                        实机 7R IK/FK 头文件
-Arm/Inc/Middleware/TrajectoryPlannerKernel.hpp
-                                          五次速度规划共享内核
-actionsequence.json                       动作序列导入回归测试样例
-```
+目录已由原 7R 名称迁移为 `SRS_6R_roboArm_web`，当前模型、协议、界面和默认启动链路均适配本仓库的单臂 6 轴项目。关节顺序是 MCU J0..J5，ROS 默认名为 `joint_1`..`joint_6`。协议及动作 JSON 中的历史字段 `right` 表示当前唯一机械臂，mask 仅允许 1。
 
 ## 运行 Web
 
-预编译 WASM 已提交，首次运行只需安装前端依赖：
-
 ```powershell
-Set-Location .\web
-npm ci
+cd SRS_6R_roboArm_web/web
+npm ci --cache ./.npm-cache
 npm run dev
 ```
 
-默认地址为 `http://localhost:5173`。
+打开 `http://localhost:5173`。纯仿真模式可离线使用 3D 视口、6 个关节控件、笛卡尔/工具系增量移动、公式轨迹、历史编辑和动作 JSON 导入导出。示例 `actionsequence.json` 与 `web/public/demo_dance.json` 为新的 6 轴序列。旧 7 轴/双臂序列需依据当前模型重新生成，导入会明确拒绝。
 
 ```powershell
 npm test
 npm run build
 ```
 
-生产输出位于 `web/dist/`。该目录、`node_modules/` 和本地工具缓存不会提交。
+生产输出为 `web/dist/`。WASM 的 ABI 模型版本为 2；前端拒绝旧版 7R 二进制。浏览器模板使用独立的 `engineer2026.arm6` 存储键，避免载入旧模型预设。
 
-## Docker Compose 部署
+## 同构控制器 USB：跟随 / 主动 / 从动仿真
 
-需要 Docker 和 Docker Compose v2。Compose 使用已有的外部网络 `web_gateway`，
-你的 Nginx 容器也需要连接该网络。如果网络尚未创建，先执行一次：
+网页顶部增加“同构控制器”一栏。点击“选择 USB 串口”，在浏览器选择接入本机的控制板串口，连接参数为 **921600、8N1、无流控**。新连接始终从跟随开始，模式不写入本地存储。USB 使用桌面 Chrome/Edge 的 Web Serial API，请通过 `http://localhost` 或 HTTPS 打开网页；直接访问远程机器的普通 HTTP 页面不能使用此功能。参见 [Chrome Web Serial 文档](https://developer.chrome.com/docs/capabilities/serial)。同构控制器串口由浏览器独占，主机械臂串口继续由现有 ROS 驱动管理。
 
-```sh
-docker network create web_gateway
+当前同构控制器为 **STM32G474 原生 USB CDC 虚拟串口**。上面的 921600/8N1 是 Web Serial 打开端口时的主机参数；直接 USB CDC 固件通常可忽略其 line coding，不需要配置 MCU 硬件 UART，也不会把 USB 实际传输速度限制为 921600。网页现有收发实现支持该虚拟 COM 设备，应用层仍按 A5/5A 二进制帧解析。
+
+| 网页运行模式 | USB 模式 | 心跳 mode | 数据流向 |
+| --- | --- | --- | --- |
+| 纯仿真 | 跟随（默认） | 0 | 视口当前虚拟臂关节角 / TCP 位姿 → USB 控制板 |
+| 纯仿真 | 从动仿真（点击按钮） | 1 | USB 控制板关节角 / 位姿 → 本地虚拟臂 |
+| 实机接入 | 跟随（默认） | 0 | ROS 实机反馈 → Web → USB 控制板 |
+| 实机接入 | 主动（点击按钮） | 1 | USB 控制板关节角 / 位姿 → Web → 现有 ROS 目标入口 → 实机 |
+
+**纯仿真可在 ROS 未连接时直接使用 USB**，即使后台 ROS 已连接，纯仿真也只走本地数据源。连接默认“跟随”，控制板声明类型后，最多 20 Hz 收到视口中虚拟臂当前显示的关节角或 TCP 位姿，包含动作播放中的插值姿态。点击“跟随 · 点击从动仿真”后，虚拟臂跟着控制板运动：`0x0002` 直接应用 6 个 rad 关节角，`0x0003` 将 m 转成内部 mm 后，使用当前 6R WASM IK、以虚拟臂当前关节角作种子逆解。超限角度、不可达位姿保留上一有效姿态并提示。实时数据不追加历史点；进入从动仿真时停止网页动画/播放，网页执行、回退、重置和时间轴预览暂停，切回跟随后恢复。断开 USB 后保持最后姿态。纯仿真连接 USB 后可点击 STOP，在本地停止并恢复跟随，不调用 ROS。
+
+实机接入的跟随反馈格式匹配控制板最近发来的有效数据类型：`0x0002` 回传真实关节角（rad）；`0x0003` 则用真实关节角做当前 6R 模型 FK，回传实际 TCP 位姿 `[x,y,z,yaw,pitch,roll]`（m/rad，位置由 mm 转 m）。来源为最近 300 ms 内的 ROS 实机反馈，默认 `/arm_web/joint_state`，`ros2_real` profile 为 `/joint_states`，最多 20 Hz。没有新鲜反馈时只发送心跳；实机接入不会用浏览器仿真值代替实机反馈。
+
+首次连接未确定类型时只发心跳。控制板收到首次心跳后，应主动发送一份当前关节角或位姿声明类型，即使当前是跟随模式；本地切换类型时再上传一帧即可，网页不请求切换。重新识别或主动切回跟随会保留已知反馈类型，USB 重连后重新识别。界面会显示当前回传的是关节角还是 TCP 位姿。
+
+主动前请切换“实机接入”，连接 ROS 并等待实机就绪，结束网页正在执行的动作，再点击“跟随 · 点击主动”。控制板可以用 `0x0002` 上传 6 个绝对关节角（rad），或用 `0x0003` 上传基座系绝对 TCP 位姿 `[x,y,z,yaw,pitch,roll]`（m/rad）。两者都复用 `/arm_web/servo_target`：位姿 JSON 标识 `space=CartesianSpace`，仍由现有 `eng26_web_bridge` 补充 session/epoch，并分发到现有驱动的关节/CartesianJog 入口。目标 `duration_ms=100`，合计最多 20 Hz。`ros2_real` profile 的位姿经当前 Web 6R IK 转成关节角，仍发原 `/joint_command`。主动时停止向控制板回传 ROS 关节角，网页手动动作与时间轴下发暂停。再次点击按钮恢复跟随。
+
+“识别数据类型”按钮只等待下一份有效 USB 上传，显示关节角或位姿，2 秒未收到提示重试。控制板自行选择上传类型，网页不发送类型选择/`changeMode` 信息，原跟随/主动心跳保持不变。控制板后续切换类型时界面也会自动更新；识别可独立于 ROS 连接使用，跟随时只识别、不转发为运动目标。
+
+USB 重连、切换纯仿真/实机接入、点击 STOP 都会回到跟随；实机接入还会在 ROS 未就绪或 MCU 事件时恢复跟随，实机 STOP 服务仍走原链路。纯仿真不受 ROS 连接状态或 MCU 事件影响。USB 断开后，对端依靠心跳超时退出主动授权。数据只取当前包，不缓存离线指令。协议帧、字节序、校验和与主控板伪代码见 [USB 同构控制器协议](docs/controller-usb-protocol.md)。
+
+## 网页固定间隔录包
+
+顶部“离散点录包”选择采样间隔（50 / 100 / 200 / 500 / 1000 ms，默认 100 ms），点击“开始录包”，结束时点击“停止录包并保存”。无需停用同构控制器主动模式；实机主动、从动仿真、普通仿真播放都可录制。纯仿真记录视口当前显示的关节角（包括插值或 USB 位姿 IK 结果），实机接入记录新鲜的 ROS 实际关节反馈，避免把控制器目标误当成电机实际到位状态。
+
+录制开始立即记录起点，此后按固定间隔采样。保存时统一生成关节角空间的离散点（rad），每段时长为所选间隔，追加到现有时间轴，不改变实时姿态。空时间轴以录制首点作为初始帧；已有序列会先追加一个相同时长的入场点，再连接后续采样。少于两个采样点不生成动作。通过“动作序列 IO”导出 `performance-action-sequence-v2` JSON，可再次导入、编辑或回放；实际回放仍遵守原有速度/加速度限制，必要时会延长运动时长。
+
+切换纯仿真/实机模式、退出录制开始时的 USB 主动模式（含 USB 断开）、STOP、实机反馈过期（300 ms）或 MCU 故障/模式事件时，自动结束并保存已有有效点。浏览器错过一个完整采样周期时停止录制，避免后台恢复后用重复姿态补齐不存在的运动；请保持页面在前台。单次最多 10000 个采样点，录制中不发送额外 USB 包，也不改变现有 ROS 指令链路。
+
+## 模型与单位
+
+- WASM 直接编译主工程 `App/Arm/Lib/myfkine26pro`、`smartikine26pro` 和 `myikine26pro`；smart IK 优先、普通 IK 回退并折叠到最近等价解。
+- 3D 连杆使用相同 Modified DH：300 mm 上臂、266 mm 前臂段、174 mm 末端段；关节偏移为 `[0, 3π/4, -π/4, 0, 0, 0]`，基座 +X 向前、+Y 向左、+Z 向上。
+- `deploy_arm_model.hpp` 的关节限位与 `App/Arm/Src/ArmMiddleware.cpp` 对齐；限位更改时需同步检查并重建 WASM。
+- UI 的角度为 degree，内部/ROS/串口关节角为 rad；网页位置为 mm，串口 CartesianJog 位置为 m，姿态均采用 yaw/pitch/roll。
+- 浏览器采用五次曲线做离线预览，速度上限与当前固件对齐。MCU 实际跟踪仍采用反馈驱动的分段对数速度规划；网页预览不承诺与实机逐时刻一致。
+
+WASM 源码依赖本仓库根目录的 `App/Arm/Lib`，请从完整仓库构建：
+
+```powershell
+# emsdk 可安装到主仓库 .cache/emsdk，缓存全部留在项目目录。
+# 使用已有 Emscripten 时显式传入 em++.bat：
+./wasm/build_wasm.ps1 -Emxx /path/to/emsdk/upstream/emscripten/em++.bat
 ```
 
-在本仓库根目录启动：
+生成 `web/public/wasm/deploy_ik.js` 和 `deploy_ik.wasm`，更新模型后必须同步部署二者。脚本的临时文件与编译缓存写入主仓库 `.cache/`。
 
-```sh
+## ROS2 实机部署
+
+推荐 Linux + ROS2 Humble。首次安装 rosbridge 后，在此目录运行：
+
+```bash
+sudo apt install ros-humble-rosbridge-suite
+cd ros2/ros
+source /opt/ros/humble/setup.bash
+colcon build --packages-up-to eng26_arm_driver eng26_web_bridge dataset_recorder
+source install/setup.bash
+SERIAL_PORT=/dev/ttyUSB0 BAUD=921600 bash start_web_stack.sh
+```
+
+启动链路为：
+
+```text
+浏览器 → rosbridge WebSocket :9090 → eng26_web_bridge
+        → eng26_arm_driver → 串口 → MCU HostComputer
+```
+
+默认使用 `web_bridge` profile，网页地址 `http://localhost:5173/?rosProfile=web_bridge`。Web bridge 提供 `/arm_web/joint_state`、driver 状态、命令结果与事件；目标通过 `/arm_web/servo_target` JSON 发布，仅包含 `right[6]`、`arm_mask=1`、`duration_ms`、`client_id`。STOP/Hold 分别通过 `/arm_web/stop`、`/arm_web/hold` Trigger 服务转发。可用 `?rosbridge=ws://主机:9090` 指定连接地址。
+
+驱动首次连接会发送 STOP，等待 MCU FSM 用新 epoch 重新授权；心跳恢复不会自动解锁。需要有效模式/epoch、实时反馈和 MCU 的 PcDebug/Vla 授权后才允许运动。完整协议见 [MCU 通信文档](../App/Devices/HostComputer/README.md)。主固件应用层已提供 UART10（921600、8N1）收发和 PerformanceState 的 PcDebug 消费。Ctrl+Shift+F 进入 debug，Ctrl+Shift+E 返回 Keyboard，机械臂参考姿态连续交接。STOP/断线后通过退出、重新进入 debug 建立新 epoch。
+
+ROS `/joint_states` 仅含 6 个关节；`/gripper_state` 为长度 1 的 `UInt8MultiArray`，与遥测最后一个夹爪枚举一致。轨迹上传 Action 要求 6 个有效且不重复的关节名。原 `eng26_usb_bridge` 已退役，默认启动脚本不会启动它。`ros2_real/` 的采集启动脚本与 LeRobot 转换器也采用 6 关节 + 1 夹爪。
+
+`?rosProfile=ros2_real` 仅保留给外部自有 `/joint_command` 节点使用，采用 6 轴 `sensor_msgs/JointState`，不提供 MCU ACK/STOP 合同；本仓库默认会话驱动使用前述 `web_bridge` profile。
+
+## Docker 静态站点部署
+
+```bash
+docker network create web_gateway  # 网络尚不存在时执行
 docker compose up -d --build
 ```
 
-Dockerfile 使用 Node 22 安装锁定的前端依赖并执行生产构建。容器启动时先将
-页面、Worker 和 WASM 导出到宿主机的 `web/dist/`，再使用 `http-server@14.1.1`
-持续提供 HTTP 服务。服务读取镜像中的 `/opt/web-dist/`，禁用浏览器缓存，
-避免更新后的 WASM 启动脚本与旧二进制混用。镜像不包含 Nginx。
+容器 `roboarm-web-view` 在 8080 提供静态页面，宿主机端口可用 `WEB_PORT` 修改。它使用已经生成的 6 轴 WASM，不在镜像内编译 C++，也不启动 ROS/串口驱动。网页实机模式仍需能连接 ROS 主机的 rosbridge WebSocket。生产构建输出导出到 `web/dist/`；本次未在 Docker/真实 ROS2 环境运行部署。
 
-- 容器名称：`roboarm-web-view`
-- 容器 HTTP 端口：`8080`，监听 `0.0.0.0`
-- 默认宿主机端口：`8080`，可直接访问 `http://localhost:8080`
-- Nginx 上游地址：`http://roboarm-web-view:8080`（通过 `web_gateway` 网络）
+## 回归检查
 
-你可以自行配置前置 Nginx 的路由。宿主机端口可通过环境变量 `WEB_PORT`
-修改，例如 PowerShell 中先执行 `$env:WEB_PORT = '8090'`，再启动 Compose；
-容器内部端口和 Nginx 上游地址保持不变。
+主仓库 `tests/host_computer` 提供不依赖 ROS 的真实 MCU/PC 协议互通测试，使用测试专用的 RTOS 锁与队列替身：
 
-```sh
-docker compose logs -f web
-docker compose down
+```bash
+cmake -S tests/host_computer -B .cache/host-tests
+cmake --build .cache/host-tests
+ctest --test-dir .cache/host-tests --output-on-failure
 ```
 
-构建时需要联网下载基础镜像与 npm 依赖；宿主机无需安装 Node、Python 或
-MuJoCo。启动时导出会覆盖同名文件，保留旧的带哈希资源文件。
+从主仓库根目录运行这些命令。Web 测试覆盖 6R FK/IK、连杆末端一致性、轨迹规划、历史编辑、JSON 往返、6 轴 ROS 映射和同构 USB 的帧解析、模式心跳、两类目标识别/转发、断开重连。缓存和构建输出不提交。
 
-容器直接使用 `web/public/wasm/` 中已提交的产物，不重新编译 C++。修改 IK、
-机械臂配置或速度规划内核后，先按下一节重新生成 WASM，然后重新执行
-`docker compose up -d --build`。
+Web bridge 的关节/位姿分流和授权检查可独立于 ROS 环境验证：
 
-模板仍保存在各访问者浏览器的 localStorage 中，轨迹 JSON 通过浏览器导入导出。
-`web/dist/` 挂载仅用于导出静态产物，不存储用户数据。
-
-本次仅提供容器配置，未在 Docker 环境中验证。
-
-## 重新构建 WASM
-
-构建脚本要求项目根目录存在本地 Emscripten 环境：
-
-```powershell
-$env:CONDA_PKGS_DIRS = Join-Path $PWD '.conda-pkgs'
-conda create --prefix .\.emscripten-env -c conda-forge emscripten
-powershell -NoProfile -ExecutionPolicy Bypass -File .\wasm\build_wasm.ps1
+```bash
+python ros2/ros/src/eng26_web_bridge/test/test_web_targets.py
 ```
 
-生成文件为：
+验证记录：Windows 原生 MCU/PC 协议互通、HostLink DMA 传输及 Debug 无缝切换回归通过，当前整机固件已生成 ELF/HEX/BIN。Web 45 项测试、Web bridge 5 项处理器测试、TypeScript 检查、应用和库生产构建通过。USB 回归包含真实 6R WASM FK/IK 的离线关节/位姿跟随、动画中间姿态反馈、固定间隔主动录包、JSON 往返、历史保持、不可达/超限目标、ROS 离线/事件隔离和模式切换。同构 USB 使用流模拟测试，尚未连接真实控制板；Linux ROS2、Docker 及真实电机联调未在此环境验证。
 
-- `web/public/wasm/deploy_ik.js`
-- `web/public/wasm/deploy_ik.wasm`
-
-不要把 WASM URL 写成 `src/wasm/`。Vite 的静态文件来自 `web/public/wasm/`，
-开发环境对应 `http://localhost:5173/wasm/`。
-
-## 单位与轨迹
-
-- UI 关节角和姿态：degree
-- C++/WASM 关节角和姿态：radian
-- 位置：mm
-- 时间：ms
-
-每个公式框只填写表达式右侧，例如 `275+25\cos(2\pi t)`。当前状态与公式起点
-不一致时，系统先生成起点过渡，再从公式起点执行轨迹。
-
-速度规划采用零起终速度、零起终加速度的五次曲线。左右臂分别按共享的关节速度和
-加速度上限计算统一时长，先完成的一侧保持终点。当前默认限制是原始部署值的 2 倍。
-
-## ROS2 实机 Web 接入
-
-当前 Web 默认使用 `ros2_real` 话题：通过 rosbridge WebSocket 订阅
-`/joint_states`（`sensor_msgs/msg/JointState`），并向 `/joint_command` 发布同样类型的
-14 轴目标，顺序为右臂 7 轴后接左臂 7 轴，单位为弧度。连接地址默认是页面主机的
-`9090` 端口，可用 `?rosbridge=ws://主机:端口` 覆盖；只有需要旧的
-`eng26_web_bridge` JSON 合同才使用 `?rosProfile=web_bridge`。
-
-`ros2_real` 当前没有 driver 状态、命令结果或 STOP 服务，因此 Web 端只能按关节反馈新鲜度
-判断是否可下发，具体模式和安全门禁仍由串口桥节点执行。夹爪下发和网页 STOP 在该配置下会
-明确提示未提供服务。
+Git 忽略本地缓存、Node 依赖、固件/原生编译输出、Web `dist`、ROS build/install/log、录包数据和工具私有配置。`web/public/wasm/deploy_ik.js` 与 `.wasm` 是网页启动必需的运行资源，继续随源码版本管理；依赖锁文件、示例动作和模型源码也保留。Web 保留现有独立 Git 仓库，主工程提交不自动包含 Web，更新时分别保存/提交两个仓库。现有 `ros2_real` 独立仓库已在 Web 内登记为子模块，发布时先推送该子仓库，再推 Web 的对应提交。

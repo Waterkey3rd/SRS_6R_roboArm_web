@@ -3,6 +3,7 @@
     driver_state_topic: /arm_driver/state
     joint_state_topic: /joint_states
     servo_topic: /arm_driver/servo_target
+    cartesian_topic: /arm_driver/cartesian_jog
     command_result_topic: /arm_driver/command_results
     event_topic: /arm_driver/events
     command_service: /arm_driver/command

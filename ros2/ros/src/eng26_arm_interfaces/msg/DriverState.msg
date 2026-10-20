@@ -28,7 +28,6 @@ bool motion_ready
 uint16 safety_flags
 uint16 fault_code
 uint32 mcu_uptime_ms
-uint8 left_gripper_state
 uint8 right_gripper_state
 uint64 heartbeat_age_ms
 uint64 mode_age_ms

@@ -1,7 +1,10 @@
 import { SIDES, type ArmState, type Side } from '../types';
+import { matrixToYpr } from '../math';
+import type { ControllerDataType } from '../serial/controller-protocol';
+import type { DeployIK } from '../wasm';
 import { RosBridgeClient } from './rosbridge-client';
 import {
-  ARM_MASK_BOTH,
+  ARM_MASK_SINGLE,
   MODE_PC_DEBUG,
   MODE_VLA,
   OUTCOME_ACK,
@@ -57,7 +60,7 @@ export class ArmWebClient {
   }>>();
   private readonly profile: ArmRosProfile;
 
-  constructor(url: string, profile: ArmRosProfile = 'ros2_real') {
+  constructor(url: string, profile: ArmRosProfile = 'web_bridge') {
     this.profile = profile;
     this.bridge = new RosBridgeClient(url);
     this.bridge.onState((state) => this.handleConnectionState(state));
@@ -107,16 +110,16 @@ export class ArmWebClient {
     this.bridge.setUrl(url);
   }
 
-  publishServo(target: ArmState, armMask = ARM_MASK_BOTH, durationMs = 800, requestedClientId?: string): string {
+  publishServo(target: ArmState, armMask = ARM_MASK_SINGLE, durationMs = 800, requestedClientId?: string, source = 'webview'): string {
+    if (armMask !== ARM_MASK_SINGLE || target.right.length !== 6 || target.right.some(v => !Number.isFinite(v))) throw new Error('目标必须是单臂 6 个有限关节角');
     const clientId = requestedClientId ?? String(this.nextClientId++);
     if (this.profile === 'ros2_real') {
-      const positions = [...target.right, ...target.left];
+      const positions = [...target.right];
       this.bridge.publish('/joint_command', {
-        name: ['right_joint_1', 'right_joint_2', 'right_joint_3', 'right_joint_4', 'right_joint_5', 'right_joint_6', 'right_joint_7',
-          'left_joint_1', 'left_joint_2', 'left_joint_3', 'left_joint_4', 'left_joint_5', 'left_joint_6', 'left_joint_7'],
+        name: ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6'],
         position: positions,
       }, 'sensor_msgs/msg/JointState');
-      this.results.set(clientId, {
+      if (source !== 'controller_usb') this.results.set(clientId, {
         client_id: clientId,
         outcome: OUTCOME_ACK,
         mcu_result: MCU_OK,
@@ -129,11 +132,41 @@ export class ArmWebClient {
       arm_mask: armMask,
       duration_ms: Math.round(durationMs),
       right: [...target.right],
-      left: [...target.left],
-      source: 'webview',
+      source,
     };
     this.bridge.publish('/arm_web/servo_target', { data: JSON.stringify(payload) }, 'std_msgs/msg/String');
     return clientId;
+  }
+
+  publishControllerJoints(joints: number[]): boolean {
+    if (!this.readyCheck().ok) return false;
+    // Reuse the same compatibility topic, session/epoch gates and node as UI commands.
+    this.publishServo({ left: [...joints], right: [...joints] }, ARM_MASK_SINGLE, 100, undefined, 'controller_usb');
+    return true;
+  }
+
+  getControllerFeedback(type: ControllerDataType, ik: Pick<DeployIK, 'fk'>): number[] | null {
+    if (!this.isConnected || !this.latestArmState || Date.now() - this.jointStateAtMs > JOINT_STALE_MS) return null;
+    const q = this.latestArmState.right;
+    if (type === 'joints') return [...q];
+    const fk = ik.fk('right', q);
+    // Current model FK is mm/rad; the USB protocol is m/rad.
+    return [...fk.position.map(value => value / 1000), ...matrixToYpr(fk.rotation)];
+  }
+
+  publishControllerPose(pose: number[], solveJoints?: (pose: number[]) => number[]): boolean {
+    if (pose.length !== 6 || pose.some(v => !Number.isFinite(v))) throw new Error('位姿必须是 x/y/z/yaw/pitch/roll 六个有限值（m/rad）');
+    if (!this.readyCheck().ok) return false;
+    if (this.profile === 'ros2_real') {
+      if (!solveJoints) throw new Error('ros2_real 需要通过当前模型的逆解转换位姿');
+      return this.publishControllerJoints(solveJoints(pose));
+    }
+    const payload: ServoTargetJson = {
+      client_id: String(this.nextClientId++), arm_mask: ARM_MASK_SINGLE, duration_ms: 100,
+      right: [...pose], space: 'CartesianSpace', reference_frame: 0, source: 'controller_usb',
+    };
+    this.bridge.publish('/arm_web/servo_target', { data: JSON.stringify(payload) }, 'std_msgs/msg/String');
+    return true;
   }
 
   async waitForCommandResult(clientId: string, timeoutMs = 2000): Promise<CommandResultJson> {
@@ -275,11 +308,11 @@ function parseStringJson<T>(message: unknown): T | null {
   }
 }
 
-function mapJointState(raw: JointStateJson): ArmState | null {
+export function mapJointState(raw: JointStateJson): ArmState | null {
   const names = raw.name ?? [];
   const positions = raw.position ?? [];
   const velocities = raw.velocity ?? [];
-  if (positions.length < 14) return null;
+  if (positions.length !== 6 || (names.length !== 0 && names.length !== 6)) return null;
 
   const nameIndex = new Map<string, number>();
   names.forEach((name, index) => {
@@ -287,19 +320,19 @@ function mapJointState(raw: JointStateJson): ArmState | null {
   });
 
   const read = (side: Side, index: number, values: number[]): number => {
-    const expected = `${side}_joint_${index + 1}`;
+    const expected = `joint_${index + 1}`;
     const direct = nameIndex.get(expected);
     if (direct !== undefined && direct < values.length) return Number(values[direct]);
-    if (names.length !== 14) return NaN;
-    const offset = side === 'right' ? 0 : 7;
-    return Number(values[offset + index] ?? NaN);
+    if (names.length !== 0) return NaN;
+    return Number(values[index] ?? NaN);
   };
 
+  if (names.length && new Set(names).size !== names.length) return null;
   const state = {} as ArmState;
   const velocity = {} as ArmState;
   for (const side of SIDES) {
-    state[side] = Array.from({ length: 7 }, (_, index) => read(side, index, positions));
-    velocity[side] = Array.from({ length: 7 }, (_, index) => read(side, index, velocities));
+    state[side] = Array.from({ length: 6 }, (_, index) => read(side, index, positions));
+    velocity[side] = Array.from({ length: 6 }, (_, index) => read(side, index, velocities));
     if (state[side].some((value) => !Number.isFinite(value))) return null;
   }
 
@@ -307,7 +340,7 @@ function mapJointState(raw: JointStateJson): ArmState | null {
   // so the UI does not display NaN while the primary position feedback is valid.
   for (const side of SIDES) {
     if (velocity[side].some((value) => !Number.isFinite(value))) {
-      velocity[side] = Array(7).fill(0);
+      velocity[side] = Array(6).fill(0);
     }
   }
 

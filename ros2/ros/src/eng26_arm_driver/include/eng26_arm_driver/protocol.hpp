@@ -8,7 +8,7 @@
 namespace eng26::wire {
 using Bytes = std::vector<uint8_t>;
 constexpr std::size_t kMaxFrame = 1024;
-constexpr std::size_t kJoints = 7;
+constexpr std::size_t kJoints = 6;
 enum class Command : uint16_t {
   Heartbeat = 0x10, Stop = 0x11, Servo = 0x20, JointJog = 0x21,
   CartesianJog = 0x22, Hold = 0x30, ClearFault = 0x31, Start = 0x32,

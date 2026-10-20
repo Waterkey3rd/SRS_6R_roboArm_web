@@ -109,7 +109,7 @@ void Session::disconnect(const std::string& reason, uint64_t now) {
   heartbeat_seen_ = initialized_ = stop_written_ = awaiting_mode_ = false;
   expected_mode_epoch_.reset();
   state_.mode_known = false; state_.peer_online = false; state_.snapshot_valid = false;
-  state_.left_gripper_state = state_.right_gripper_state = 255;
+  state_.right_gripper_state = 255;
   state_.rearm_required = true; state_.control_blocked = true; state_.last_error = reason;
   retry_at_ms_ = now + config_.reconnect_ms;
 }
@@ -118,16 +118,12 @@ void Session::receive(const wire::Frame& frame, uint64_t now) {
   const auto size = frame.payload.size();
   switch (frame.command) {
     case Command::Heartbeat: {
-      if (size != 6) break;
+      if (size != 4) break;
       const auto uptime = r.u32();
-      const auto left_gripper = r.u8(); const auto right_gripper = r.u8();
-      if (left_gripper > 3 || right_gripper > 3) break;
       if (heartbeat_seen_ && static_cast<uint32_t>(uptime - state_.mcu_uptime_ms) >= 0x80000000U) {
         disconnect("MCU uptime moved backwards; restart handshake", now); return;
       }
       state_.mcu_uptime_ms = uptime;
-      state_.left_gripper_state = left_gripper;
-      state_.right_gripper_state = right_gripper;
       heartbeat_seen_ = true; last_heartbeat_rx_ = now;
       return;
     }
@@ -189,13 +185,15 @@ void Session::receive(const wire::Frame& frame, uint64_t now) {
       return;
     }
     case Command::JointState: {
-      if (size != 118) break;
+      if (size != 6 + 8 * wire::kJoints + 1) break;
       r.u32(); const auto epoch = r.u16();
       bool finite = true;
-      for (int i = 0; i < 28; ++i) finite = std::isfinite(r.f32()) && finite;
-      if (!finite) break;
+      for (int i = 0; i < 2 * wire::kJoints; ++i) finite = std::isfinite(r.f32()) && finite;
+      const auto gripper = r.u8();
+      if (!finite || gripper > 3 || !r.done()) break;
       const auto s = state(now);
       if (!s.mode_fresh || !s.heartbeat_fresh || !s.snapshot_valid || epoch != s.epoch) return;
+      state_.right_gripper_state = gripper;
       if (on_telemetry) on_telemetry(frame);
       return;
     }

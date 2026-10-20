@@ -25,7 +25,7 @@ export class HistoryDialog {
     this.backdrop.className = 'modal-backdrop';
 
     this.currentSpaces = {
-      left: point.frameTargets.left.space,
+      left: point.frameTargets.left?.space ?? 'JointAngleSpace',
       right: point.frameTargets.right.space,
     };
 
@@ -88,7 +88,7 @@ export class HistoryDialog {
     for (const side of SIDES) {
       const box = document.createElement('div');
       box.className = 'formula-arm-box';
-      const title = side === 'left' ? '左臂目标设定' : '右臂目标设定';
+      const title = side === 'left' ? '左臂目标设定' : '机械臂目标设定';
 
       box.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
@@ -120,7 +120,7 @@ export class HistoryDialog {
     const space = this.currentSpaces[side];
     const isJoint = space === 'JointAngleSpace';
     const labels = isJoint
-      ? ['J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'J7']
+      ? ['J0', 'J1', 'J2', 'J3', 'J4', 'J5']
       : ['X', 'Y', 'Z', 'Yaw', 'Pitch', 'Roll'];
 
     let initialValues: number[] = [];

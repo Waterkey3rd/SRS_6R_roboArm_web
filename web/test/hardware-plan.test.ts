@@ -8,7 +8,7 @@ const planner = (_start: any, _target: any, requested: number) => requested / 2;
 
 function history(): HistoryPoint[] {
   return [0.1, 0.2].map((value, index) => {
-    const q = Array(7).fill(value);
+    const q = Array(6).fill(value);
     return {
       label: `frame-${index}`,
       start: zeroState(),
@@ -29,7 +29,7 @@ describe('hardware plan', () => {
     expect(plan).toHaveLength(2);
     expect(plan[0].durationMs).toBe(500);
     expect(plan[1].durationMs).toBe(1000);
-    expect(plan[1].target.left[0]).toBe(0.2);
+    expect(plan[1].target.right[0]).toBe(0.2);
   });
 
   it('builds a single frame from actual feedback', () => {

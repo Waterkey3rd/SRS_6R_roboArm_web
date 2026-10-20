@@ -9,7 +9,7 @@
   <version>0.1.0</version>
 
   <description>
-    ROS2 USB bridge for ENG26 dual-arm robot.
+    Retired compatibility package; use eng26_arm_driver for the six-axis arm.
   </description>
 
   <maintainer email="rm@example.com">rm</maintainer>
@@ -18,9 +18,7 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>sensor_msgs</depend>
-  <depend>std_msgs</depend>
+  <exec_depend>eng26_arm_driver</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

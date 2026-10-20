@@ -34,8 +34,8 @@ protected:
     auto transport = std::make_unique<FakeTransport>(); link = transport.get();
     session = std::make_unique<Session>(std::move(transport), SessionConfig{}, 100);
   }
-  void heartbeat(uint32_t uptime = 1000, uint8_t left_gripper = 2, uint8_t right_gripper = 2) {
-    wire::Writer w; w.u32(uptime); w.u8(left_gripper); w.u8(right_gripper);
+  void heartbeat(uint32_t uptime = 1000) {
+    wire::Writer w; w.u32(uptime);
     link->feed(Command::Heartbeat, w);
   }
   void mode(uint16_t epoch, bool blocked = false, uint8_t value = 2) {
@@ -68,19 +68,16 @@ TEST_F(SessionTest, StartupStopAndExternalRearmAreRequired) {
   EXPECT_FALSE(session->state(now).rearm_required);
   EXPECT_TRUE(send(Command::Servo, true).accepted);
 }
-TEST_F(SessionTest, HeartbeatCarriesBothGripperStates) {
-  heartbeat(1234, 1, 0); mode(10); session->tick(now);
+TEST_F(SessionTest, HeartbeatUsesFourByteUptime) {
+  heartbeat(1234); mode(10); session->tick(now);
   auto state = session->state(now);
   EXPECT_TRUE(state.heartbeat_fresh);
   EXPECT_EQ(state.mcu_uptime_ms, 1234U);
-  EXPECT_EQ(state.left_gripper_state, 1U);
-  EXPECT_EQ(state.right_gripper_state, 0U);
 
   wire::Writer invalid; invalid.u32(1235); invalid.u8(4); invalid.u8(2);
   link->feed(Command::Heartbeat, invalid); session->tick(++now);
   state = session->state(now);
   EXPECT_EQ(state.mcu_uptime_ms, 1234U);
-  EXPECT_EQ(state.left_gripper_state, 1U);
   EXPECT_EQ(state.payload_errors, 1U);
 }
 TEST_F(SessionTest, LatestTargetAndAckCorrelation) {

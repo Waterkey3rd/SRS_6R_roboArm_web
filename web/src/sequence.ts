@@ -17,7 +17,7 @@ const finite = (value: unknown, name: string): number => {
 };
 
 export function jointTarget(q: number[]): FrameTarget {
-  if (q.length !== 7) throw new Error('关节目标必须包含 7 个角度');
+  if (q.length !== 6) throw new Error('关节目标必须包含 6 个角度');
   return { space: 'JointAngleSpace', target: { jointAngles: q.map((v, i) => finite(v, `J${i + 1}`)) } };
 }
 
@@ -91,7 +91,7 @@ export function recomputeHistory(ik: DeployIK, history: HistoryPoint[], base: Ar
 
 export function exportSequence(history: HistoryPoint[], base: ArmState, forceJoint = false): ActionSequence {
   if (!history.length) throw new Error('没有可导出的历史关键点');
-  const sequences = { left: { frames: [] as SequenceFrame[] }, right: { frames: [] as SequenceFrame[] } };
+  const sequences = { right: { frames: [] as SequenceFrame[] } } as ActionSequence['sequences'];
   for (const side of SIDES) {
     sequences[side].frames.push({ ...jointTarget(base[side]), duration: history[0].durationMs, timeout: 0 } as SequenceFrame);
     for (const point of history) {
@@ -104,6 +104,7 @@ export function exportSequence(history: HistoryPoint[], base: ArmState, forceJoi
 
 export function importSequence(payload: any, ik: DeployIK): { base: ArmState; history: HistoryPoint[] } {
   if (!payload || payload.format !== 'performance-action-sequence-v2') throw new Error('仅支持 performance-action-sequence-v2');
+  if (payload.sequences?.left?.frames?.length) throw new Error('当前项目只接受单臂 6 轴轨迹，请重新生成旧双臂轨迹');
   const units = payload.units ?? {};
   const parsed = {} as Record<Side, SequenceFrame[]>;
   for (const side of SIDES) {
@@ -112,13 +113,11 @@ export function importSequence(payload: any, ik: DeployIK): { base: ArmState; hi
     parsed[side] = frames.map((frame: any) => ({ ...canonicalTarget(frame, units), duration: timeMs(frame.duration, units['Frame.duration']), timeout: timeMs(frame.timeout, units['Frame.timeout']) } as SequenceFrame));
     if (parsed[side][0].space !== 'JointAngleSpace') throw new Error('第 0 帧必须是 JointAngleSpace');
   }
-  if (parsed.left.length !== parsed.right.length) throw new Error('左右臂帧数不同');
-  const base = { left: [...(parsed.left[0] as any).target.jointAngles], right: [...(parsed.right[0] as any).target.jointAngles] };
+  const base = { left: Array(6).fill(0), right: [...(parsed.right[0] as any).target.jointAngles] };
   const labels: string[] = payload.metadata?.frameLabels ?? [];
   const history: HistoryPoint[] = [];
-  for (let i = 1; i < parsed.left.length; i++) {
-    if (parsed.left[i].duration !== parsed.right[i].duration || parsed.left[i].timeout !== parsed.right[i].timeout) throw new Error(`第 ${i} 帧左右臂时间不同`);
-    history.push({ label: labels[i] || `导入关键点 ${i}`, start: cloneState(base), target: cloneState(base), frameTargets: { left: parsed.left[i], right: parsed.right[i] }, durationMs: parsed.left[i].duration, timeoutMs: parsed.left[i].timeout });
+  for (let i = 1; i < parsed.right.length; i++) {
+    history.push({ label: labels[i] || `导入关键点 ${i}`, start: cloneState(base), target: cloneState(base), frameTargets: { right: parsed.right[i], left: jointTarget(Array(6).fill(0)) }, durationMs: parsed.right[i].duration, timeoutMs: parsed.right[i].timeout });
   }
   recomputeHistory(ik, history, base);
   return { base, history };
